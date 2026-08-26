@@ -8,6 +8,33 @@ use rsgdll_platform::__private::{LuaCFunction, RawLuaState};
 
 /// Capacity of the stack-owned error buffer supplied by the C++ trampoline.
 pub const ERROR_BUFFER_CAPACITY: u32 = 4096;
+/// Maximum number of Lua return values staged outside the Lua stack.
+pub const RETURN_SLOT_CAPACITY: usize = 16;
+/// Capacity of copied string return data.
+pub const RETURN_BYTE_CAPACITY: usize = 4096;
+
+pub const RETURN_NIL: u32 = 0;
+pub const RETURN_BOOL: u32 = 1;
+pub const RETURN_NUMBER: u32 = 2;
+pub const RETURN_STRING: u32 = 3;
+
+/// One POD Lua return value written by Rust and consumed by C++.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct ReturnSlot {
+    pub tag: u32,
+    pub offset: u32,
+    pub length: u32,
+    pub reserved: u32,
+    pub number: f64,
+}
+
+/// C++-owned staging storage filled before Rust returns.
+#[repr(C)]
+pub struct ReturnBuffer {
+    pub slots: [ReturnSlot; RETURN_SLOT_CAPACITY],
+    pub bytes: [u8; RETURN_BYTE_CAPACITY],
+}
 
 /// POD result returned after all Rust dispatcher frames have unwound normally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +66,8 @@ impl DispatchResult {
 }
 
 /// Rust dispatcher signature registered with the generic C++ trampoline.
-pub type Dispatcher = unsafe extern "C" fn(*mut RawLuaState, *mut c_char, u32) -> DispatchResult;
+pub type Dispatcher =
+    unsafe extern "C" fn(*mut RawLuaState, *mut c_char, u32, *mut ReturnBuffer) -> DispatchResult;
 
 unsafe extern "C" {
     fn rsgdll_bridge_set_dispatcher(dispatcher: Dispatcher);
@@ -60,3 +88,5 @@ pub fn trampoline() -> LuaCFunction {
 }
 
 const _: () = assert!(std::mem::size_of::<DispatchResult>() == 12);
+const _: () = assert!(std::mem::size_of::<ReturnSlot>() == 24);
+const _: () = assert!(std::mem::size_of::<ReturnBuffer>() == 4480);

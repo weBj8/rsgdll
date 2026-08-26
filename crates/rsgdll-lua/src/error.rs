@@ -18,6 +18,8 @@ pub enum LuaError {
     NullStringPointer,
     /// A string cannot be represented by the pinned ABI length type.
     StringTooLong,
+    /// A Lua number cannot be represented as the requested exact integer.
+    IntegerOutOfRange,
     /// A frame operation would remove caller-owned stack values.
     StackUnderflow { baseline: i32, requested_top: i32 },
     /// Callback return count disagreed with values left on the stack.
@@ -47,6 +49,9 @@ impl fmt::Display for LuaError {
                 formatter.write_str("Lua returned a null pointer for a string value")
             }
             Self::StringTooLong => formatter.write_str("Lua string exceeds the ABI length limit"),
+            Self::IntegerOutOfRange => {
+                formatter.write_str("Lua number is not an exactly representable integer")
+            }
             Self::StackUnderflow {
                 baseline,
                 requested_top,

@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use rsgdll_module::{BoxError, install_dispatcher, register_callback, trampoline};
+use rsgdll_module::{BoxError, ReturnWriter, install_dispatcher, register_callback, trampoline};
 use support::{Fixture, Value};
 
 static ERROR_DROPPED: AtomicBool = AtomicBool::new(false);
@@ -26,26 +26,36 @@ impl Drop for ArtificialError {
     }
 }
 
-fn returns_error(frame: &mut rsgdll_lua::StackFrame<'_, '_>) -> Result<usize, BoxError> {
-    // SAFETY: test fixture's push cannot allocate or longjmp.
-    unsafe { frame.push(41.0_f64)? };
+fn returns_error(
+    _: &mut rsgdll_lua::StackFrame<'_, '_>,
+    returns: &mut ReturnWriter<'_>,
+) -> Result<(), BoxError> {
+    returns.push(41.0_f64)?;
     Err(Box::new(ArtificialError))
 }
 
-fn panics(_: &mut rsgdll_lua::StackFrame<'_, '_>) -> Result<usize, BoxError> {
+fn panics(
+    _: &mut rsgdll_lua::StackFrame<'_, '_>,
+    _: &mut ReturnWriter<'_>,
+) -> Result<(), BoxError> {
     panic!("artificial panic")
 }
 
-fn succeeds(frame: &mut rsgdll_lua::StackFrame<'_, '_>) -> Result<usize, BoxError> {
-    // SAFETY: test fixture's push cannot allocate or longjmp.
-    unsafe { frame.push(42.0_f64)? };
-    Ok(1)
+fn succeeds(
+    _: &mut rsgdll_lua::StackFrame<'_, '_>,
+    returns: &mut ReturnWriter<'_>,
+) -> Result<(), BoxError> {
+    returns.push(42.0_f64)?;
+    Ok(())
 }
 
-fn wrong_return_count(frame: &mut rsgdll_lua::StackFrame<'_, '_>) -> Result<usize, BoxError> {
+fn changes_stack(
+    frame: &mut rsgdll_lua::StackFrame<'_, '_>,
+    _: &mut ReturnWriter<'_>,
+) -> Result<(), BoxError> {
     // SAFETY: test fixture's push cannot allocate or longjmp.
     unsafe { frame.push(42.0_f64)? };
-    Ok(2)
+    Ok(())
 }
 
 #[test]
@@ -100,10 +110,9 @@ fn success_preserves_return_values_without_throwing() {
 }
 
 #[test]
-fn mismatched_return_count_is_reported_and_restored() {
+fn callback_stack_mutation_is_reported_and_restored() {
     install_dispatcher();
-    let id =
-        register_callback("module.bad_count", wrong_return_count).expect("callback registration");
+    let id = register_callback("module.bad_stack", changes_stack).expect("callback registration");
     let mut fixture = Fixture::new(id.get(), vec![]);
 
     // SAFETY: fixture provides a live pinned-layout state and fake vtable.
@@ -113,6 +122,6 @@ fn mismatched_return_count_is_reported_and_restored() {
     assert_eq!(fixture.stack(), &[]);
     assert_eq!(
         fixture.error(),
-        Some("module.bad_count: callback declared 2 return values but left 1 on the stack")
+        Some("module.bad_stack: callback declared 0 return values but left 1 on the stack")
     );
 }

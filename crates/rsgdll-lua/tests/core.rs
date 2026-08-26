@@ -29,6 +29,22 @@ fn conversion_reports_expected_and_actual_types() {
 }
 
 #[test]
+fn u64_conversion_accepts_only_exact_nonnegative_lua_integers() {
+    let mut valid = Fixture::new(vec![Value::Number(42.0)], vec![]);
+    // SAFETY: fixture owns a live state and matching fake vtable for this test.
+    let lua = unsafe { Lua::from_raw(valid.state()) }.expect("valid fixture");
+    assert_eq!(u64::from_lua(&lua, 1).expect("exact integer"), 42);
+
+    let mut fractional = Fixture::new(vec![Value::Number(1.5)], vec![]);
+    // SAFETY: fixture owns a live state and matching fake vtable for this test.
+    let lua = unsafe { Lua::from_raw(fractional.state()) }.expect("valid fixture");
+    assert_eq!(
+        u64::from_lua(&lua, 1).expect_err("fractional number"),
+        LuaError::IntegerOutOfRange
+    );
+}
+
+#[test]
 fn primitives_round_trip_and_frame_restores_stack() {
     // Given: one pre-existing caller value.
     let mut fixture = Fixture::new(vec![Value::Entity], vec![]);

@@ -4,6 +4,8 @@ use rsgdll_platform::__private::RawLuaBase;
 
 use crate::{Lua, LuaError, LuaResult, LuaType};
 
+const MAX_EXACT_LUA_INTEGER: f64 = (1_u64 << 53) as f64;
+
 /// Converts one checked Lua stack value into an owned Rust value.
 pub trait FromLua: Sized {
     /// Reads `index` without using Lua's throwing `Check*` APIs.
@@ -36,6 +38,20 @@ impl FromLua for f64 {
         // SAFETY: exact type validation above prevents conversion; pinned
         // `GetNumber` only reads the existing number.
         Ok(unsafe { RawLuaBase::get_number(lua.raw().as_ptr(), index) })
+    }
+}
+
+impl FromLua for u64 {
+    fn from_lua(lua: &Lua<'_>, index: i32) -> LuaResult<Self> {
+        let value = f64::from_lua(lua, index)?;
+        if value.is_finite()
+            && value.fract() == 0.0
+            && (0.0..=MAX_EXACT_LUA_INTEGER).contains(&value)
+        {
+            Ok(value as u64)
+        } else {
+            Err(LuaError::IntegerOutOfRange)
+        }
     }
 }
 

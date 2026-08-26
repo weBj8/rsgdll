@@ -3,17 +3,20 @@ use std::ffi::c_char;
 use std::fmt;
 use std::sync::RwLock;
 
-use rsgdll_bridge::DispatchResult;
+use rsgdll_bridge::{DispatchResult, ReturnBuffer};
 use rsgdll_lua::{FromLua, Lua, StackFrame};
 
-use crate::{ErrorReport, PanicReport};
+use crate::{ErrorReport, PanicReport, ReturnWriter};
 
 const ERROR_STATUS: i32 = 1;
 const PANIC_STATUS: i32 = 2;
 const DISPATCHER_CONTEXT: &str = "rsgdll dispatcher";
 
 pub type BoxError = Box<dyn Error + 'static>;
-pub type Callback = for<'guard, 'lua> fn(&mut StackFrame<'guard, 'lua>) -> Result<usize, BoxError>;
+pub type Callback = for<'guard, 'lua, 'buffer> fn(
+    &mut StackFrame<'guard, 'lua>,
+    &mut ReturnWriter<'buffer>,
+) -> Result<(), BoxError>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CallbackId(u32);
@@ -78,10 +81,13 @@ unsafe extern "C" fn rust_dispatcher(
     state: *mut rsgdll_platform::__private::RawLuaState,
     error_buffer: *mut c_char,
     error_capacity: u32,
+    return_buffer: *mut ReturnBuffer,
 ) -> DispatchResult {
     #[cfg(panic = "unwind")]
     {
-        match std::panic::catch_unwind(|| dispatch_and_write(state, error_buffer, error_capacity)) {
+        match std::panic::catch_unwind(|| {
+            dispatch_and_write(state, error_buffer, error_capacity, return_buffer)
+        }) {
             Ok(result) => result,
             Err(_) => {
                 let length = write_bytes(
@@ -95,7 +101,7 @@ unsafe extern "C" fn rust_dispatcher(
     }
     #[cfg(not(panic = "unwind"))]
     {
-        dispatch_and_write(state, error_buffer, error_capacity)
+        dispatch_and_write(state, error_buffer, error_capacity, return_buffer)
     }
 }
 
@@ -103,8 +109,9 @@ fn dispatch_and_write(
     state: *mut rsgdll_platform::__private::RawLuaState,
     error_buffer: *mut c_char,
     error_capacity: u32,
+    return_buffer: *mut ReturnBuffer,
 ) -> DispatchResult {
-    match dispatch(state) {
+    match dispatch(state, return_buffer) {
         Outcome::Success(return_count) => DispatchResult::success(return_count),
         Outcome::Error(report) => {
             let length = write_report(error_buffer, error_capacity, &report);
@@ -119,7 +126,16 @@ fn dispatch_and_write(
     }
 }
 
-fn dispatch(state: *mut rsgdll_platform::__private::RawLuaState) -> Outcome {
+fn dispatch(
+    state: *mut rsgdll_platform::__private::RawLuaState,
+    return_buffer: *mut ReturnBuffer,
+) -> Outcome {
+    let Some(return_buffer) = (unsafe { return_buffer.as_mut() }) else {
+        return Outcome::Error(ErrorReport::message(
+            DISPATCHER_CONTEXT,
+            "C++ bridge supplied no return buffer",
+        ));
+    };
     // SAFETY: C++ trampoline passes its live callback state and no throwing Lua
     // operation occurs while constructing the checked handle.
     let mut lua = match unsafe { Lua::from_raw(state) } {
@@ -144,18 +160,25 @@ fn dispatch(state: *mut rsgdll_platform::__private::RawLuaState) -> Outcome {
 
     let mut stack = lua.stack();
     let mut frame = stack.frame();
+    let mut returns = ReturnWriter::new(return_buffer);
     #[cfg(panic = "unwind")]
     let invocation = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        (entry.callback)(&mut frame)
+        (entry.callback)(&mut frame, &mut returns)
             .map_err(|error| ErrorReport::capture(entry.context, error.as_ref()))
     }));
     #[cfg(not(panic = "unwind"))]
-    let invocation = Ok((entry.callback)(&mut frame)
+    let invocation = Ok((entry.callback)(&mut frame, &mut returns)
         .map_err(|error| ErrorReport::capture(entry.context, error.as_ref())));
 
     match invocation {
-        Ok(Ok(return_count)) => match frame.commit(return_count) {
-            Ok(return_count) => Outcome::Success(return_count),
+        Ok(Ok(())) => match frame.commit(0) {
+            Ok(_) => match i32::try_from(returns.count()) {
+                Ok(return_count) => Outcome::Success(return_count),
+                Err(_) => Outcome::Error(ErrorReport::message(
+                    entry.context,
+                    "Lua return count exceeds the ABI integer limit",
+                )),
+            },
             Err(error) => Outcome::Error(ErrorReport::capture(entry.context, &error)),
         },
         Ok(Err(report)) => match frame.finish() {

@@ -1,5 +1,7 @@
 //! Public facade for building Garry's Mod binary Lua modules.
 
+pub use rsgdll_macros::{function, module};
+
 /// Checked Lua APIs.
 pub use rsgdll_lua as lua;
 
@@ -12,6 +14,7 @@ pub use rsgdll_runtime as runtime;
 /// Common developer-facing imports.
 pub mod prelude {
     pub use rsgdll_lua::{FromLua, IntoLua, Lua, LuaError, LuaResult, Stack, StackFrame};
+    pub use rsgdll_module::{IntoLuaReturn, ModuleBuilder};
 }
 
 /// Low-level escape hatches reserved for the `raw` feature.
