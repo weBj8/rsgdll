@@ -1,0 +1,4 @@
+[package]
+name = "rsgdll-abi"
+version.workspace = true
+edition.workspace = true

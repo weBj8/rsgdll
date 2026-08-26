@@ -1,0 +1,22 @@
+[package]
+name = "rsgdll"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+engine = []
+sigscan = []
+detour = ["sigscan"]
+hook = ["sigscan", "detour"]
+async = []
+serde = []
+backtrace = []
+raw = []
+full = ["engine", "hook", "async", "serde", "backtrace"]
+
+[dependencies]
+rsgdll-lua.workspace = true
+rsgdll-macros.workspace = true
+rsgdll-module.workspace = true
+rsgdll-runtime.workspace = true

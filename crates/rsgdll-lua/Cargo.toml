@@ -1,0 +1,7 @@
+[package]
+name = "rsgdll-lua"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rsgdll-platform.workspace = true
