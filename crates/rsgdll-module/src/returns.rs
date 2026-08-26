@@ -14,6 +14,7 @@ pub enum ReturnError {
     TooManyValues,
     StringDataTooLong,
     IntegerNotExactlyRepresentable,
+    MixedReturnModes,
 }
 
 impl fmt::Display for ReturnError {
@@ -25,6 +26,9 @@ impl fmt::Display for ReturnError {
             }
             Self::IntegerNotExactlyRepresentable => {
                 formatter.write_str("integer is not exactly representable by a Lua number")
+            }
+            Self::MixedReturnModes => {
+                formatter.write_str("cannot mix staged and on-stack Lua return values")
             }
         }
     }
@@ -42,6 +46,7 @@ pub struct ReturnWriter<'buffer> {
     buffer: &'buffer mut ReturnBuffer,
     count: usize,
     bytes_used: usize,
+    stack_count: Option<usize>,
 }
 
 impl<'buffer> ReturnWriter<'buffer> {
@@ -50,6 +55,7 @@ impl<'buffer> ReturnWriter<'buffer> {
             buffer,
             count: 0,
             bytes_used: 0,
+            stack_count: None,
         }
     }
 
@@ -61,7 +67,14 @@ impl<'buffer> ReturnWriter<'buffer> {
         self.count
     }
 
+    pub(crate) fn stack_count(&self) -> Option<usize> {
+        self.stack_count
+    }
+
     fn push_slot(&mut self, slot: ReturnSlot) -> Result<(), ReturnError> {
+        if self.stack_count.is_some() {
+            return Err(ReturnError::MixedReturnModes);
+        }
         let Some(output) = self.buffer.slots.get_mut(self.count) else {
             return Err(ReturnError::TooManyValues);
         };
@@ -89,6 +102,31 @@ impl<'buffer> ReturnWriter<'buffer> {
         self.buffer.bytes[self.bytes_used..end].copy_from_slice(value);
         self.bytes_used = end;
         Ok(())
+    }
+
+    fn use_stack(&mut self, count: usize) -> Result<(), ReturnError> {
+        if self.count != 0 || self.stack_count.is_some() {
+            return Err(ReturnError::MixedReturnModes);
+        }
+        self.stack_count = Some(count);
+        Ok(())
+    }
+}
+
+/// Declares that a generated callback left its return values on the Lua stack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LuaStackValues(usize);
+
+impl LuaStackValues {
+    #[must_use]
+    pub const fn new(count: usize) -> Self {
+        Self(count)
+    }
+}
+
+impl IntoLuaReturn for LuaStackValues {
+    fn into_lua_return(self, writer: &mut ReturnWriter<'_>) -> Result<(), ReturnError> {
+        writer.use_stack(self.0)
     }
 }
 
@@ -143,6 +181,12 @@ impl IntoLuaReturn for &str {
     }
 }
 
+impl IntoLuaReturn for rsgdll_lua::LuaBytes {
+    fn into_lua_return(self, writer: &mut ReturnWriter<'_>) -> Result<(), ReturnError> {
+        writer.push_string(self.as_bytes())
+    }
+}
+
 impl IntoLuaReturn for Option<()> {
     fn into_lua_return(self, writer: &mut ReturnWriter<'_>) -> Result<(), ReturnError> {
         if self.is_none() {
@@ -159,3 +203,34 @@ impl IntoLuaReturn for Option<()> {
 }
 
 const _: () = assert!(RETURN_SLOT_CAPACITY == 16);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_return_preserves_every_byte() {
+        // Given: a fresh bridge return buffer.
+        let mut buffer = ReturnBuffer {
+            slots: [ReturnSlot {
+                tag: 0,
+                offset: 0,
+                length: 0,
+                reserved: 0,
+                number: 0.0,
+            }; RETURN_SLOT_CAPACITY],
+            bytes: [0; RETURN_BYTE_CAPACITY],
+        };
+        let mut writer = ReturnWriter::new(&mut buffer);
+
+        // When: arbitrary bytes are staged as one Lua string.
+        writer
+            .push(rsgdll_lua::LuaBytes::from(vec![0, 0xff, b'A', 0]))
+            .expect("binary return");
+
+        // Then: tag, length, and copied bytes remain exact.
+        assert_eq!(buffer.slots[0].tag, RETURN_STRING);
+        assert_eq!(buffer.slots[0].length, 4);
+        assert_eq!(&buffer.bytes[..4], &[0, 0xff, b'A', 0]);
+    }
+}

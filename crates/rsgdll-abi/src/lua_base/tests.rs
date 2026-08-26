@@ -13,6 +13,22 @@ unsafe extern "C" fn int(_: *mut RawLuaBase, _: c_int) {}
 unsafe extern "C" fn int_result(_: *mut RawLuaBase, _: c_int) -> c_int {
     0
 }
+unsafe extern "C" fn pcall(_: *mut RawLuaBase, _: c_int, _: c_int, _: c_int) -> c_int {
+    0
+}
+unsafe extern "C" fn new_userdata(_: *mut RawLuaBase, _: c_uint) -> *mut c_void {
+    core::ptr::null_mut()
+}
+unsafe extern "C" fn get_userdata(_: *mut RawLuaBase, _: c_int) -> *mut c_void {
+    core::ptr::null_mut()
+}
+unsafe extern "C" fn create_meta_table(_: *mut RawLuaBase, _: *const c_char) -> c_int {
+    1
+}
+unsafe extern "C" fn bool_int(_: *mut RawLuaBase, _: c_int) -> bool {
+    true
+}
+unsafe extern "C" fn set_user_type(_: *mut RawLuaBase, _: c_int, _: *mut c_void) {}
 unsafe extern "C" fn get_string(_: *mut RawLuaBase, _: c_int, _: *mut c_uint) -> *const c_char {
     core::ptr::null()
 }
@@ -41,16 +57,16 @@ fn test_vtable() -> RawLuaBaseVTable {
         set_field: unused,
         create_table: void,
         set_table: unused,
-        set_meta_table: unused,
+        set_meta_table: int,
         get_meta_table: unused,
         call: unused,
-        pcall: unused,
+        pcall,
         equal: unused,
         raw_equal: unused,
         insert: int,
         remove: int,
         next: int_result,
-        new_userdata: unused,
+        new_userdata,
         throw_error: unused,
         check_type: unused,
         arg_error: unused,
@@ -60,7 +76,7 @@ fn test_vtable() -> RawLuaBaseVTable {
         get_number,
         get_bool,
         get_c_function: unused,
-        get_userdata: unused,
+        get_userdata,
         push_nil: void,
         push_string,
         push_number,
@@ -68,9 +84,9 @@ fn test_vtable() -> RawLuaBaseVTable {
         push_c_function: unused,
         push_c_closure,
         push_userdata: unused,
-        reference_create: unused,
-        reference_free: unused,
-        reference_push: unused,
+        reference_create: top,
+        reference_free: int,
+        reference_push: int,
         push_special,
         is_type: unused,
         get_type: int_result,
@@ -84,10 +100,10 @@ fn test_vtable() -> RawLuaBaseVTable {
         push_angle: unused,
         push_vector: unused,
         set_state,
-        create_meta_table: unused,
-        push_meta_table: unused,
+        create_meta_table,
+        push_meta_table: bool_int,
         push_user_type: unused,
-        set_user_type: unused,
+        set_user_type,
     }
 }
 

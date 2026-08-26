@@ -54,6 +54,15 @@ pub fn register_callback(
     let mut callbacks = CALLBACKS
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(index) = callbacks.iter().position(|entry| {
+        entry.context == context && std::ptr::fn_addr_eq(entry.callback, callback)
+    }) {
+        let id = u32::try_from(index)
+            .ok()
+            .and_then(|id| id.checked_add(1))
+            .ok_or(RegistrationError)?;
+        return Ok(CallbackId(id));
+    }
     let id = u32::try_from(callbacks.len())
         .ok()
         .and_then(|id| id.checked_add(1))
@@ -72,7 +81,7 @@ pub fn trampoline() -> rsgdll_lua::LuaCFunction {
 }
 
 enum Outcome {
-    Success(i32),
+    Success { return_count: i32, on_stack: bool },
     Error(ErrorReport),
     Panic(PanicReport),
 }
@@ -112,7 +121,14 @@ fn dispatch_and_write(
     return_buffer: *mut ReturnBuffer,
 ) -> DispatchResult {
     match dispatch(state, return_buffer) {
-        Outcome::Success(return_count) => DispatchResult::success(return_count),
+        Outcome::Success {
+            return_count,
+            on_stack: true,
+        } => DispatchResult::stack_success(return_count),
+        Outcome::Success {
+            return_count,
+            on_stack: false,
+        } => DispatchResult::success(return_count),
         Outcome::Error(report) => {
             let length = write_report(error_buffer, error_capacity, &report);
             drop(report);
@@ -171,16 +187,23 @@ fn dispatch(
         .map_err(|error| ErrorReport::capture(entry.context, error.as_ref())));
 
     match invocation {
-        Ok(Ok(())) => match frame.commit(0) {
-            Ok(_) => match i32::try_from(returns.count()) {
-                Ok(return_count) => Outcome::Success(return_count),
-                Err(_) => Outcome::Error(ErrorReport::message(
-                    entry.context,
-                    "Lua return count exceeds the ABI integer limit",
-                )),
-            },
-            Err(error) => Outcome::Error(ErrorReport::capture(entry.context, &error)),
-        },
+        Ok(Ok(())) => {
+            let stack_count = returns.stack_count();
+            let expected = stack_count.unwrap_or(0);
+            match frame.commit(expected) {
+                Ok(_) => match i32::try_from(stack_count.unwrap_or_else(|| returns.count())) {
+                    Ok(return_count) => Outcome::Success {
+                        return_count,
+                        on_stack: stack_count.is_some(),
+                    },
+                    Err(_) => Outcome::Error(ErrorReport::message(
+                        entry.context,
+                        "Lua return count exceeds the ABI integer limit",
+                    )),
+                },
+                Err(error) => Outcome::Error(ErrorReport::capture(entry.context, &error)),
+            }
+        }
         Ok(Err(report)) => match frame.finish() {
             Ok(()) => Outcome::Error(report),
             Err(error) => {

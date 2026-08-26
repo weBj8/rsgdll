@@ -2,7 +2,7 @@ use std::ffi::c_uint;
 
 use rsgdll_platform::__private::RawLuaBase;
 
-use crate::{Lua, LuaError, LuaResult, LuaType};
+use crate::{Lua, LuaBytes, LuaError, LuaResult, LuaType};
 
 const MAX_EXACT_LUA_INTEGER: f64 = (1_u64 << 53) as f64;
 
@@ -57,18 +57,15 @@ impl FromLua for u64 {
 
 impl FromLua for String {
     fn from_lua(lua: &Lua<'_>, index: i32) -> LuaResult<Self> {
-        expect_type(lua, index, LuaType::STRING)?;
-        let mut length: c_uint = 0;
-        // SAFETY: exact string validation prevents number-to-string coercion;
-        // `length` is writable and the live Lua value retains returned bytes.
-        let bytes = unsafe { RawLuaBase::get_string(lua.raw().as_ptr(), index, &raw mut length) };
-        let bytes = std::ptr::NonNull::new(bytes.cast_mut()).ok_or(LuaError::NullStringPointer)?;
-        // SAFETY: [UB categories 3, 8, 10] Pinned `GetString` returned a
-        // readable string allocation with exactly `length` bytes. We copy it
-        // before any stack mutation can release the Lua value.
-        let bytes = unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast(), length as usize) };
-        let value = std::str::from_utf8(bytes).map_err(|_| LuaError::InvalidUtf8)?;
+        let bytes = string_bytes(lua, index)?;
+        let value = std::str::from_utf8(&bytes).map_err(|_| LuaError::InvalidUtf8)?;
         Ok(value.to_owned())
+    }
+}
+
+impl FromLua for LuaBytes {
+    fn from_lua(lua: &Lua<'_>, index: i32) -> LuaResult<Self> {
+        string_bytes(lua, index).map(Self::from)
     }
 }
 
@@ -104,6 +101,21 @@ impl IntoLua for () {
 
 impl IntoLua for &str {
     unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        // SAFETY: caller's no-longjmp guarantee applies to these UTF-8 bytes.
+        unsafe { self.as_bytes().into_lua(lua) }
+    }
+}
+
+impl IntoLua for String {
+    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        // SAFETY: caller's longjmp exclusion applies while `self` is borrowed;
+        // `PushString` copies the bytes before returning.
+        unsafe { self.as_str().into_lua(lua) }
+    }
+}
+
+impl IntoLua for &[u8] {
+    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
         let length = c_uint::try_from(self.len()).map_err(|_| LuaError::StringTooLong)?;
         let empty = [0_u8];
         let bytes = if self.is_empty() {
@@ -119,12 +131,31 @@ impl IntoLua for &str {
     }
 }
 
-impl IntoLua for String {
+impl IntoLua for Vec<u8> {
     unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
-        // SAFETY: caller's longjmp exclusion applies while `self` is borrowed;
-        // `PushString` copies the bytes before returning.
-        unsafe { self.as_str().into_lua(lua) }
+        // SAFETY: caller's no-longjmp guarantee applies while bytes are live.
+        unsafe { self.as_slice().into_lua(lua) }
     }
+}
+
+impl IntoLua for LuaBytes {
+    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        // SAFETY: caller's no-longjmp guarantee applies while bytes are live.
+        unsafe { self.as_bytes().into_lua(lua) }
+    }
+}
+
+fn string_bytes(lua: &Lua<'_>, index: i32) -> LuaResult<Vec<u8>> {
+    expect_type(lua, index, LuaType::STRING)?;
+    let mut length: c_uint = 0;
+    // SAFETY: exact string validation prevents number-to-string coercion;
+    // `length` is writable and the live Lua value retains returned bytes.
+    let bytes = unsafe { RawLuaBase::get_string(lua.raw().as_ptr(), index, &raw mut length) };
+    let bytes = std::ptr::NonNull::new(bytes.cast_mut()).ok_or(LuaError::NullStringPointer)?;
+    // SAFETY: [UB categories 3, 8, 10] Pinned `GetString` returned a readable
+    // allocation with exactly `length` bytes. Copy occurs before stack mutation.
+    let bytes = unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast(), length as usize) };
+    Ok(bytes.to_vec())
 }
 
 fn expect_type(lua: &Lua<'_>, index: i32, expected: LuaType) -> LuaResult<()> {

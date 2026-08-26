@@ -1,8 +1,10 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ffi::{c_char, c_double, c_int, c_uint};
+use std::ffi::{CStr, c_char, c_double, c_int, c_uint, c_void};
 use std::ptr::NonNull;
+use std::rc::Rc;
 
-use rsgdll_abi::{LuaCFunction, LuaType, RawLuaBase, RawLuaState, SpecialIndex};
+use rsgdll_abi::{LuaCFunction, LuaType, RawLuaBase, RawLuaState, RawUserData, SpecialIndex};
 
 #[derive(Clone)]
 pub enum Value {
@@ -10,9 +12,18 @@ pub enum Value {
     Bool(bool),
     Number(f64),
     String(Vec<u8>),
-    Table(HashMap<Vec<u8>, Value>),
+    Table(Rc<RefCell<HashMap<Key, Value>>>),
     Function,
+    FunctionReturns(Vec<Value>),
+    FunctionError(Vec<u8>),
+    UserData(*mut RawUserData),
     Entity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Key {
+    String(Vec<u8>),
+    Number(u64),
 }
 
 #[repr(C)]
@@ -21,6 +32,12 @@ struct TestState {
     lua_base: *mut RawLuaBase,
     stack: Vec<Value>,
     upvalues: Vec<Value>,
+    references: HashMap<c_int, Value>,
+    next_reference: c_int,
+    metatable_names: HashMap<Vec<u8>, c_int>,
+    metatables: HashMap<c_int, Value>,
+    next_userdata_type: c_int,
+    userdata_allocations: Vec<*mut RawUserData>,
 }
 
 #[repr(C)]
@@ -41,16 +58,16 @@ struct TestVTable {
     set_field: Slot,
     create_table: unsafe extern "C" fn(*mut RawLuaBase),
     set_table: Slot,
-    set_meta_table: Slot,
+    set_meta_table: unsafe extern "C" fn(*mut RawLuaBase, c_int),
     get_meta_table: Slot,
     call: Slot,
-    pcall: Slot,
+    pcall: unsafe extern "C" fn(*mut RawLuaBase, c_int, c_int, c_int) -> c_int,
     equal: Slot,
     raw_equal: Slot,
     insert: unsafe extern "C" fn(*mut RawLuaBase, c_int),
     remove: unsafe extern "C" fn(*mut RawLuaBase, c_int),
     next: unsafe extern "C" fn(*mut RawLuaBase, c_int) -> c_int,
-    new_userdata: Slot,
+    new_userdata: unsafe extern "C" fn(*mut RawLuaBase, c_uint) -> *mut c_void,
     throw_error: Slot,
     check_type: Slot,
     arg_error: Slot,
@@ -60,7 +77,7 @@ struct TestVTable {
     get_number: unsafe extern "C" fn(*mut RawLuaBase, c_int) -> c_double,
     get_bool: unsafe extern "C" fn(*mut RawLuaBase, c_int) -> bool,
     get_c_function: Slot,
-    get_userdata: Slot,
+    get_userdata: unsafe extern "C" fn(*mut RawLuaBase, c_int) -> *mut c_void,
     push_nil: unsafe extern "C" fn(*mut RawLuaBase),
     push_string: unsafe extern "C" fn(*mut RawLuaBase, *const c_char, c_uint),
     push_number: unsafe extern "C" fn(*mut RawLuaBase, c_double),
@@ -68,9 +85,9 @@ struct TestVTable {
     push_c_function: Slot,
     push_c_closure: unsafe extern "C" fn(*mut RawLuaBase, LuaCFunction, c_int),
     push_userdata: Slot,
-    reference_create: Slot,
-    reference_free: Slot,
-    reference_push: Slot,
+    reference_create: unsafe extern "C" fn(*mut RawLuaBase) -> c_int,
+    reference_free: unsafe extern "C" fn(*mut RawLuaBase, c_int),
+    reference_push: unsafe extern "C" fn(*mut RawLuaBase, c_int),
     push_special: unsafe extern "C" fn(*mut RawLuaBase, SpecialIndex),
     is_type: Slot,
     get_type: unsafe extern "C" fn(*mut RawLuaBase, c_int) -> c_int,
@@ -84,10 +101,10 @@ struct TestVTable {
     push_angle: Slot,
     push_vector: Slot,
     set_state: unsafe extern "C" fn(*mut RawLuaBase, *mut RawLuaState),
-    create_meta_table: Slot,
-    push_meta_table: Slot,
+    create_meta_table: unsafe extern "C" fn(*mut RawLuaBase, *const c_char) -> c_int,
+    push_meta_table: unsafe extern "C" fn(*mut RawLuaBase, c_int) -> bool,
     push_user_type: Slot,
-    set_user_type: Slot,
+    set_user_type: unsafe extern "C" fn(*mut RawLuaBase, c_int, *mut c_void),
 }
 
 pub struct Fixture {
@@ -108,6 +125,12 @@ impl Fixture {
             lua_base: lua_base.as_ptr().cast(),
             stack,
             upvalues,
+            references: HashMap::new(),
+            next_reference: 1,
+            metatable_names: HashMap::new(),
+            metatables: HashMap::new(),
+            next_userdata_type: 1,
+            userdata_allocations: Vec::new(),
         })));
         // SAFETY: raw-owned allocations remain live until `Fixture::drop`.
         unsafe { (*lua_base.as_ptr()).state = state.as_ptr().cast() };
@@ -127,10 +150,21 @@ impl Fixture {
         // `Lua` access is active.
         unsafe { (*self.state.as_ptr()).stack.len() }
     }
+
+    pub fn reference_count(&self) -> usize {
+        // SAFETY: allocation remains live and callers inspect only when no
+        // `Lua` access is active.
+        unsafe { (*self.state.as_ptr()).references.len() }
+    }
 }
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        // SAFETY: each pointer came from one Box::into_raw in `new_userdata`.
+        for allocation in unsafe { &mut (*self.state.as_ptr()).userdata_allocations }.drain(..) {
+            // SAFETY: each allocation is reclaimed exactly once here.
+            unsafe { drop(Box::from_raw(allocation)) };
+        }
         // SAFETY: `state` came from one `Box::leak` and is reclaimed once.
         unsafe { drop(Box::from_raw(self.state.as_ptr())) };
         // SAFETY: `lua_base` came from one `Box::leak` and is reclaimed once.
@@ -174,6 +208,21 @@ fn value(state: &TestState, index: c_int) -> Option<&Value> {
     }
 }
 
+fn table_key(value: Value) -> Option<Key> {
+    match value {
+        Value::String(value) => Some(Key::String(value)),
+        Value::Number(value) => Some(Key::Number(value.to_bits())),
+        _ => None,
+    }
+}
+
+fn key_value(key: Key) -> Value {
+    match key {
+        Key::String(value) => Value::String(value),
+        Key::Number(value) => Value::Number(f64::from_bits(value)),
+    }
+}
+
 unsafe extern "C" fn top(lua_base: *mut RawLuaBase) -> c_int {
     // SAFETY: forwarded from a live fixture vtable.
     unsafe { test_state(lua_base) }.stack.len() as c_int
@@ -197,7 +246,7 @@ unsafe extern "C" fn create_table(lua_base: *mut RawLuaBase) {
     // SAFETY: forwarded from a live fixture vtable.
     unsafe { test_state(lua_base) }
         .stack
-        .push(Value::Table(HashMap::new()));
+        .push(Value::Table(Rc::new(RefCell::new(HashMap::new()))));
 }
 
 unsafe extern "C" fn raw_get(lua_base: *mut RawLuaBase, index: c_int) {
@@ -205,9 +254,9 @@ unsafe extern "C" fn raw_get(lua_base: *mut RawLuaBase, index: c_int) {
     let state = unsafe { test_state(lua_base) };
     let table_offset = stack_offset(state, index);
     let key = state.stack.pop();
-    let result = match (table_offset, key) {
-        (Some(offset), Some(Value::String(key))) => match state.stack.get(offset) {
-            Some(Value::Table(table)) => table.get(&key).cloned().unwrap_or(Value::Nil),
+    let result = match (table_offset, key.and_then(table_key)) {
+        (Some(offset), Some(key)) => match state.stack.get(offset) {
+            Some(Value::Table(table)) => table.borrow().get(&key).cloned().unwrap_or(Value::Nil),
             _ => Value::Nil,
         },
         _ => Value::Nil,
@@ -220,12 +269,45 @@ unsafe extern "C" fn raw_set(lua_base: *mut RawLuaBase, index: c_int) {
     let state = unsafe { test_state(lua_base) };
     let table_offset = stack_offset(state, index);
     let assigned = state.stack.pop();
-    let key = state.stack.pop();
-    if let (Some(offset), Some(Value::String(key)), Some(assigned)) = (table_offset, key, assigned)
-        && let Some(Value::Table(table)) = state.stack.get_mut(offset)
+    let key = state.stack.pop().and_then(table_key);
+    if let (Some(offset), Some(key), Some(assigned)) = (table_offset, key, assigned)
+        && let Some(Value::Table(table)) = state.stack.get(offset)
     {
-        table.insert(key, assigned);
+        table.borrow_mut().insert(key, assigned);
     }
+}
+
+unsafe extern "C" fn next(lua_base: *mut RawLuaBase, index: c_int) -> c_int {
+    // SAFETY: forwarded from a live fixture vtable.
+    let state = unsafe { test_state(lua_base) };
+    let table_offset = stack_offset(state, index);
+    let current = state.stack.pop();
+    let Some(Value::Table(table)) = table_offset
+        .and_then(|offset| state.stack.get(offset))
+        .cloned()
+    else {
+        return 0;
+    };
+    let table = table.borrow();
+    let mut keys = table.keys().cloned().collect::<Vec<_>>();
+    keys.sort_unstable();
+    let next_key = match current {
+        Some(Value::Nil) => keys.first().cloned(),
+        Some(current) => table_key(current).and_then(|current| {
+            keys.iter()
+                .position(|key| key == &current)
+                .and_then(|offset| keys.get(offset + 1))
+                .cloned()
+        }),
+        _ => None,
+    };
+    let Some(key) = next_key else {
+        return 0;
+    };
+    let value = table.get(&key).cloned().unwrap_or(Value::Nil);
+    state.stack.push(key_value(key));
+    state.stack.push(value);
+    1
 }
 
 unsafe extern "C" fn get_string(
@@ -302,6 +384,131 @@ unsafe extern "C" fn push_c_closure(
     state.stack.push(Value::Function);
 }
 
+unsafe extern "C" fn pcall(
+    lua_base: *mut RawLuaBase,
+    argument_count: c_int,
+    result_count: c_int,
+    _: c_int,
+) -> c_int {
+    // SAFETY: forwarded from a live fixture vtable.
+    let state = unsafe { test_state(lua_base) };
+    let function_offset = state.stack.len() - argument_count as usize - 1;
+    let function = state.stack.remove(function_offset);
+    state.stack.truncate(function_offset);
+    match function {
+        Value::Function | Value::FunctionReturns(_) if result_count == 0 => 0,
+        Value::FunctionReturns(mut values) => {
+            values.resize(result_count as usize, Value::Nil);
+            values.truncate(result_count as usize);
+            state.stack.extend(values);
+            0
+        }
+        Value::FunctionError(message) => {
+            state.stack.push(Value::String(message));
+            1
+        }
+        _ => {
+            state
+                .stack
+                .push(Value::String(b"attempt to call non-function".to_vec()));
+            1
+        }
+    }
+}
+
+unsafe extern "C" fn new_userdata(lua_base: *mut RawLuaBase, _: c_uint) -> *mut c_void {
+    let header = Box::into_raw(Box::new(RawUserData {
+        data: std::ptr::null_mut(),
+        lua_type: 0,
+    }));
+    // SAFETY: forwarded from a live fixture vtable.
+    let state = unsafe { test_state(lua_base) };
+    state.userdata_allocations.push(header);
+    state.stack.push(Value::UserData(header));
+    header.cast()
+}
+
+unsafe extern "C" fn get_userdata(lua_base: *mut RawLuaBase, index: c_int) -> *mut c_void {
+    // SAFETY: forwarded from a live fixture vtable.
+    match value(unsafe { test_state(lua_base) }, index) {
+        Some(Value::UserData(header)) => header.cast(),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+unsafe extern "C" fn set_meta_table(lua_base: *mut RawLuaBase, _: c_int) {
+    // SAFETY: forwarded from a live fixture vtable.
+    unsafe { test_state(lua_base) }.stack.pop();
+}
+
+unsafe extern "C" fn create_meta_table(lua_base: *mut RawLuaBase, name: *const c_char) -> c_int {
+    // SAFETY: wrapper supplies a live NUL-terminated name.
+    let name = unsafe { CStr::from_ptr(name) }.to_bytes().to_vec();
+    // SAFETY: forwarded from a live fixture vtable.
+    let state = unsafe { test_state(lua_base) };
+    let lua_type = match state.metatable_names.get(&name) {
+        Some(lua_type) => *lua_type,
+        None => {
+            let lua_type = state.next_userdata_type;
+            state.next_userdata_type += 1;
+            state.metatable_names.insert(name, lua_type);
+            state.metatables.insert(
+                lua_type,
+                Value::Table(Rc::new(RefCell::new(HashMap::new()))),
+            );
+            lua_type
+        }
+    };
+    if let Some(metatable) = state.metatables.get(&lua_type).cloned() {
+        state.stack.push(metatable);
+    }
+    lua_type
+}
+
+unsafe extern "C" fn push_meta_table(lua_base: *mut RawLuaBase, lua_type: c_int) -> bool {
+    // SAFETY: forwarded from a live fixture vtable.
+    let state = unsafe { test_state(lua_base) };
+    let Some(metatable) = state.metatables.get(&lua_type).cloned() else {
+        return false;
+    };
+    state.stack.push(metatable);
+    true
+}
+
+unsafe extern "C" fn set_user_type(lua_base: *mut RawLuaBase, index: c_int, data: *mut c_void) {
+    // SAFETY: forwarded from a live fixture vtable.
+    if let Some(Value::UserData(header)) = value(unsafe { test_state(lua_base) }, index) {
+        // SAFETY: fixture allocated this writable header.
+        unsafe { (**header).data = data };
+    }
+}
+
+unsafe extern "C" fn reference_create(lua_base: *mut RawLuaBase) -> c_int {
+    // SAFETY: forwarded from a live fixture vtable.
+    let state = unsafe { test_state(lua_base) };
+    let reference = state.next_reference;
+    state.next_reference += 1;
+    if let Some(value) = state.stack.pop() {
+        state.references.insert(reference, value);
+    }
+    reference
+}
+
+unsafe extern "C" fn reference_free(lua_base: *mut RawLuaBase, reference: c_int) {
+    // SAFETY: forwarded from a live fixture vtable.
+    unsafe { test_state(lua_base) }
+        .references
+        .remove(&reference);
+}
+
+unsafe extern "C" fn reference_push(lua_base: *mut RawLuaBase, reference: c_int) {
+    // SAFETY: forwarded from a live fixture vtable.
+    let state = unsafe { test_state(lua_base) };
+    if let Some(value) = state.references.get(&reference).cloned() {
+        state.stack.push(value);
+    }
+}
+
 unsafe extern "C" fn push_special(_: *mut RawLuaBase, _: SpecialIndex) {}
 
 unsafe extern "C" fn get_type(lua_base: *mut RawLuaBase, index: c_int) -> c_int {
@@ -313,7 +520,13 @@ unsafe extern "C" fn get_type(lua_base: *mut RawLuaBase, index: c_int) -> c_int 
         Some(Value::Number(_)) => LuaType::NUMBER.0,
         Some(Value::String(_)) => LuaType::STRING.0,
         Some(Value::Table(_)) => LuaType::TABLE.0,
-        Some(Value::Function) => LuaType::FUNCTION.0,
+        Some(Value::Function | Value::FunctionReturns(_) | Value::FunctionError(_)) => {
+            LuaType::FUNCTION.0
+        }
+        Some(Value::UserData(header)) => {
+            // SAFETY: fixture owns this live userdata header.
+            i32::from(unsafe { (**header).lua_type })
+        }
         Some(Value::Entity) => LuaType::ENTITY.0,
     }
 }
@@ -325,10 +538,6 @@ unsafe extern "C" fn set_state(lua_base: *mut RawLuaBase, state: *mut RawLuaStat
 
 unsafe extern "C" fn int(_: *mut RawLuaBase, _: c_int) {}
 
-unsafe extern "C" fn int_result(_: *mut RawLuaBase, _: c_int) -> c_int {
-    0
-}
-
 fn test_vtable() -> TestVTable {
     TestVTable {
         top,
@@ -339,16 +548,16 @@ fn test_vtable() -> TestVTable {
         set_field: unused,
         create_table,
         set_table: unused,
-        set_meta_table: unused,
+        set_meta_table,
         get_meta_table: unused,
         call: unused,
-        pcall: unused,
+        pcall,
         equal: unused,
         raw_equal: unused,
         insert: int,
         remove: int,
-        next: int_result,
-        new_userdata: unused,
+        next,
+        new_userdata,
         throw_error: unused,
         check_type: unused,
         arg_error: unused,
@@ -358,7 +567,7 @@ fn test_vtable() -> TestVTable {
         get_number,
         get_bool,
         get_c_function: unused,
-        get_userdata: unused,
+        get_userdata,
         push_nil,
         push_string,
         push_number,
@@ -366,9 +575,9 @@ fn test_vtable() -> TestVTable {
         push_c_function: unused,
         push_c_closure,
         push_userdata: unused,
-        reference_create: unused,
-        reference_free: unused,
-        reference_push: unused,
+        reference_create,
+        reference_free,
+        reference_push,
         push_special,
         is_type: unused,
         get_type,
@@ -382,9 +591,9 @@ fn test_vtable() -> TestVTable {
         push_angle: unused,
         push_vector: unused,
         set_state,
-        create_meta_table: unused,
-        push_meta_table: unused,
+        create_meta_table,
+        push_meta_table,
         push_user_type: unused,
-        set_user_type: unused,
+        set_user_type,
     }
 }

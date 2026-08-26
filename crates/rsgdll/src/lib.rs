@@ -13,8 +13,13 @@ pub use rsgdll_runtime as runtime;
 
 /// Common developer-facing imports.
 pub mod prelude {
-    pub use rsgdll_lua::{FromLua, IntoLua, Lua, LuaError, LuaResult, Stack, StackFrame};
-    pub use rsgdll_module::{IntoLuaReturn, ModuleBuilder};
+    pub use rsgdll_lua::{
+        FromLua, FromLuaMulti, IntoLua, IntoLuaMulti, Lua, LuaBytes, LuaError, LuaFunction,
+        LuaResult, LuaTable, RegistryReference, Stack, StackFrame, UserDataType,
+    };
+    pub use rsgdll_module::{
+        BoxError, IntoLuaReturn, LuaStackValues, ModuleBuilder, install_userdata_gc,
+    };
 }
 
 /// Low-level escape hatches reserved for the `raw` feature.

@@ -11,6 +11,7 @@ struct DispatchResult {
     std::int32_t status;
     std::int32_t return_count;
     std::uint32_t error_length;
+    std::uint32_t return_mode;
 };
 
 struct ReturnSlot {
@@ -71,6 +72,8 @@ static constexpr std::uint32_t return_nil = 0;
 static constexpr std::uint32_t return_bool = 1;
 static constexpr std::uint32_t return_number = 2;
 static constexpr std::uint32_t return_string = 3;
+static constexpr std::uint32_t return_mode_staged = 0;
+static constexpr std::uint32_t return_mode_stack = 1;
 
 extern "C" int rsgdll_bridge_trampoline(LuaState *state);
 
@@ -88,12 +91,19 @@ extern "C" int rsgdll_bridge_trampoline(LuaState *state) {
     const Dispatcher registered = dispatcher.load(std::memory_order_acquire);
     const DispatchResult result =
         registered == nullptr
-            ? DispatchResult{1, 0, 0}
+            ? DispatchResult{1, 0, 0, return_mode_staged}
             : registered(state, error, error_capacity, &returns);
 
     if (result.status == 0) {
         if (state == nullptr || state->lua_base == nullptr ||
-            result.return_count < 0 || result.return_count > 16) {
+            result.return_count < 0) {
+            return 0;
+        }
+        if (result.return_mode == return_mode_stack) {
+            return result.return_count;
+        }
+        if (result.return_mode != return_mode_staged ||
+            result.return_count > 16) {
             return 0;
         }
         auto **vtable = *reinterpret_cast<void ***>(state->lua_base);
@@ -215,7 +225,7 @@ extern "C" int rsgdll_bridge_gmod13_close(LuaState *) {
 }
 
 static_assert(offsetof(LuaState, lua_base) == 120);
-static_assert(sizeof(DispatchResult) == 12);
+static_assert(sizeof(DispatchResult) == 16);
 static_assert(sizeof(ReturnSlot) == 24);
 static_assert(sizeof(ReturnBuffer) == 4480);
 static_assert(sizeof(ModuleRegistration) == 16);

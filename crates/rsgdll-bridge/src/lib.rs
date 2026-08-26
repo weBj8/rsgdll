@@ -17,6 +17,8 @@ pub const RETURN_NIL: u32 = 0;
 pub const RETURN_BOOL: u32 = 1;
 pub const RETURN_NUMBER: u32 = 2;
 pub const RETURN_STRING: u32 = 3;
+pub const RETURN_MODE_STAGED: u32 = 0;
+pub const RETURN_MODE_STACK: u32 = 1;
 
 /// One POD Lua return value written by Rust and consumed by C++.
 #[derive(Debug, Clone, Copy)]
@@ -43,6 +45,7 @@ pub struct DispatchResult {
     pub status: i32,
     pub return_count: i32,
     pub error_length: u32,
+    pub return_mode: u32,
 }
 
 impl DispatchResult {
@@ -52,6 +55,17 @@ impl DispatchResult {
             status: 0,
             return_count,
             error_length: 0,
+            return_mode: RETURN_MODE_STAGED,
+        }
+    }
+
+    #[must_use]
+    pub const fn stack_success(return_count: i32) -> Self {
+        Self {
+            status: 0,
+            return_count,
+            error_length: 0,
+            return_mode: RETURN_MODE_STACK,
         }
     }
 
@@ -61,6 +75,7 @@ impl DispatchResult {
             status,
             return_count: 0,
             error_length,
+            return_mode: RETURN_MODE_STAGED,
         }
     }
 }
@@ -87,6 +102,6 @@ pub fn trampoline() -> LuaCFunction {
     rsgdll_bridge_trampoline
 }
 
-const _: () = assert!(std::mem::size_of::<DispatchResult>() == 12);
+const _: () = assert!(std::mem::size_of::<DispatchResult>() == 16);
 const _: () = assert!(std::mem::size_of::<ReturnSlot>() == 24);
 const _: () = assert!(std::mem::size_of::<ReturnBuffer>() == 4480);

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::LuaType;
+use crate::{LuaBytes, LuaType};
 
 /// Failure produced by checked Rust-side Lua access.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +28,32 @@ pub enum LuaError {
     CountOverflow,
     /// Closure upvalues are one-based.
     InvalidUpvaluePosition,
+    /// A state-owned value was used with a different Lua state.
+    WrongState,
+    /// A protected Lua call raised an error.
+    Call { status: i32, message: LuaBytes },
+    /// A userdata type name was reused for a different Rust type.
+    UserDataTypeNameConflict(String),
+    /// A foreign userdata type identifier does not fit its one-byte header.
+    UserDataTypeOutOfRange,
+    /// Userdata allocation returned null.
+    NullUserData,
+    /// Registered userdata metatable was unavailable.
+    MissingMetaTable,
+    /// Userdata belongs to another registered Rust type.
+    UserDataTypeMismatch,
+    /// Userdata has already been finalized.
+    FinalizedUserData,
+    /// Userdata is already borrowed incompatibly.
+    UserDataBorrowConflict,
+    /// A C-compatible name contained an interior NUL byte.
+    StringContainsNul,
+    /// Serde conversion failed.
+    Serde(String),
+    /// Serde conversion exceeded the supported nesting limit.
+    SerdeDepthExceeded,
+    /// A Lua type has no serde representation.
+    UnsupportedSerdeType(LuaType),
 }
 
 /// Result type used by checked Lua operations.
@@ -66,6 +92,39 @@ impl fmt::Display for LuaError {
             Self::CountOverflow => formatter.write_str("value count exceeds the ABI integer limit"),
             Self::InvalidUpvaluePosition => {
                 formatter.write_str("closure upvalue positions start at one")
+            }
+            Self::WrongState => formatter.write_str("Lua value belongs to a different state"),
+            Self::Call { status, message } => write!(
+                formatter,
+                "protected Lua call failed with status {status}: {}",
+                String::from_utf8_lossy(message.as_bytes())
+            ),
+            Self::UserDataTypeNameConflict(name) => {
+                write!(
+                    formatter,
+                    "userdata type name {name:?} is already registered"
+                )
+            }
+            Self::UserDataTypeOutOfRange => {
+                formatter.write_str("userdata type identifier exceeds one-byte ABI storage")
+            }
+            Self::NullUserData => formatter.write_str("Lua returned null userdata storage"),
+            Self::MissingMetaTable => formatter.write_str("userdata metatable is unavailable"),
+            Self::UserDataTypeMismatch => formatter.write_str("userdata has a different Rust type"),
+            Self::FinalizedUserData => formatter.write_str("userdata was already finalized"),
+            Self::UserDataBorrowConflict => {
+                formatter.write_str("userdata is already borrowed incompatibly")
+            }
+            Self::StringContainsNul => formatter.write_str("name contains an interior NUL byte"),
+            Self::Serde(message) => write!(formatter, "serde conversion failed: {message}"),
+            Self::SerdeDepthExceeded => {
+                formatter.write_str("serde Lua value nesting exceeds 64 levels")
+            }
+            Self::UnsupportedSerdeType(actual) => {
+                write!(
+                    formatter,
+                    "Lua type {actual:?} cannot be represented by serde"
+                )
             }
         }
     }

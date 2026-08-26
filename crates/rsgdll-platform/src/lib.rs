@@ -25,7 +25,7 @@ const _: () = assert!(!RUNTIME_ABI_VERIFIED);
 /// Internal ABI plumbing for higher-level workspace crates.
 #[doc(hidden)]
 pub mod __private {
-    pub use rsgdll_abi::{LuaCFunction, LuaType, RawLuaBase, RawLuaState};
+    pub use rsgdll_abi::{LuaCFunction, LuaType, RawLuaBase, RawLuaState, RawUserData};
 }
 
 #[cfg(test)]

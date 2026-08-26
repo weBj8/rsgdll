@@ -109,7 +109,8 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
     let callback_name = format_ident!("__rsgdll_callback_{}", descriptor_name);
     let visibility = function.vis.clone();
     let mut arguments = Vec::new();
-    let mut argument_names = Vec::new();
+    let mut call_arguments = Vec::new();
+    let mut lua_index = 0_i32;
     for (offset, argument) in function.sig.inputs.iter().enumerate() {
         let FnArg::Typed(argument) = argument else {
             return Err("`function` does not support method receivers");
@@ -119,7 +120,17 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
         };
         let name = &pattern.ident;
         let ty = &argument.ty;
-        let index = i32::try_from(offset + 1).map_err(|_| "`function` has too many parameters")?;
+        if is_stack_frame_context(ty) {
+            if offset != 0 {
+                return Err("`&mut StackFrame` is supported only as the first parameter");
+            }
+            call_arguments.push(quote! { frame });
+            continue;
+        }
+        lua_index = lua_index
+            .checked_add(1)
+            .ok_or("`function` has too many parameters")?;
+        let index = lua_index;
         arguments.push(quote! {
             let #name: #ty = frame
                 .get(#index)
@@ -127,7 +138,7 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
                     ::std::boxed::Box::new(error)
                 })?;
         });
-        argument_names.push(name.clone());
+        call_arguments.push(quote! { #name });
     }
 
     let return_type = match &function.sig.output {
@@ -137,7 +148,7 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
     let (result_type, is_result) = return_type
         .and_then(syntactic_result_ok_type)
         .map_or((return_type, false), |ty| (Some(ty), true));
-    let call = quote! { #implementation_name(#(#argument_names),*) };
+    let call = quote! { #implementation_name(#(#call_arguments),*) };
     let evaluate = if is_result {
         quote! {
             let output = #call.map_err(
@@ -185,6 +196,22 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
             ::std::result::Result::Ok(())
         }
     })
+}
+
+fn is_stack_frame_context(ty: &Type) -> bool {
+    let Type::Reference(reference) = ty else {
+        return false;
+    };
+    if reference.mutability.is_none() {
+        return false;
+    }
+    let Type::Path(path) = reference.elem.as_ref() else {
+        return false;
+    };
+    path.path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "StackFrame")
 }
 
 fn syntactic_result_ok_type(ty: &Type) -> Option<&Type> {
