@@ -1,0 +1,16 @@
+services:
+  runner:
+    restart: "no"
+    entrypoint: ["/bin/bash", "/home/steam/rsgdll-entrypoint.sh"]
+    ulimits:
+      core:
+        soft: -1
+        hard: -1
+    volumes:
+      - type: bind
+        source: ${RSGDLL_E2E_ENTRYPOINT}
+        target: /home/steam/rsgdll-entrypoint.sh
+        read_only: true
+      - type: bind
+        source: ${E2E_ARTIFACT_DIR}
+        target: /e2e-artifacts

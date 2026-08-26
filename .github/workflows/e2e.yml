@@ -1,0 +1,34 @@
+name: Garry's Mod E2E
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable core dumps
+        run: |
+          ulimit -c unlimited
+          printf 'core.%%e.%%p.%%t\n' | sudo tee /proc/sys/kernel/core_pattern
+
+      - name: Run real GLuaTest server
+        run: bash e2e/run.sh
+
+      - name: Upload E2E diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rsgdll-e2e-linux64
+          path: e2e-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
