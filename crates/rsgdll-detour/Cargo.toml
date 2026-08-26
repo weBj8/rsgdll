@@ -2,6 +2,8 @@
 name = "rsgdll-detour"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+description = "Internal detouring primitives for rsgdll"
 
 [dev-dependencies]
 static_assertions = "1"

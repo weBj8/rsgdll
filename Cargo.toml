@@ -1,22 +1,23 @@
 [workspace]
-members = ["crates/*"]
+members = ["crates/*", "xtask"]
 resolver = "3"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 
 [workspace.dependencies]
-rsgdll-abi = { path = "crates/rsgdll-abi" }
-rsgdll-bridge = { path = "crates/rsgdll-bridge" }
-rsgdll-platform = { path = "crates/rsgdll-platform" }
-rsgdll-lua = { path = "crates/rsgdll-lua" }
-rsgdll-module = { path = "crates/rsgdll-module" }
-rsgdll-runtime = { path = "crates/rsgdll-runtime" }
-rsgdll-async = { path = "crates/rsgdll-async" }
-rsgdll-engine-sys = { path = "crates/rsgdll-engine-sys" }
-rsgdll-engine = { path = "crates/rsgdll-engine" }
-rsgdll-sigscan = { path = "crates/rsgdll-sigscan" }
-rsgdll-detour = { path = "crates/rsgdll-detour" }
-rsgdll-macros = { path = "crates/rsgdll-macros" }
+rsgdll-abi = { version = "0.1.0", path = "crates/rsgdll-abi" }
+rsgdll-bridge = { version = "0.1.0", path = "crates/rsgdll-bridge" }
+rsgdll-platform = { version = "0.1.0", path = "crates/rsgdll-platform" }
+rsgdll-lua = { version = "0.1.0", path = "crates/rsgdll-lua" }
+rsgdll-module = { version = "0.1.0", path = "crates/rsgdll-module" }
+rsgdll-runtime = { version = "0.1.0", path = "crates/rsgdll-runtime" }
+rsgdll-async = { version = "0.1.0", path = "crates/rsgdll-async" }
+rsgdll-engine-sys = { version = "0.1.0", path = "crates/rsgdll-engine-sys" }
+rsgdll-engine = { version = "0.1.0", path = "crates/rsgdll-engine" }
+rsgdll-sigscan = { version = "0.1.0", path = "crates/rsgdll-sigscan" }
+rsgdll-detour = { version = "0.1.0", path = "crates/rsgdll-detour" }
+rsgdll-macros = { version = "0.1.0", path = "crates/rsgdll-macros" }
 cc = "1"

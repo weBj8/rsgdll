@@ -2,6 +2,8 @@
 name = "rsgdll-runtime"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+description = "Internal main-thread runtime services for rsgdll"
 
 [dependencies]
 rsgdll-platform.workspace = true

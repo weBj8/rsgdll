@@ -2,6 +2,8 @@
 name = "rsgdll-module"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+description = "Internal module lifecycle and dispatch for rsgdll"
 
 [features]
 default = []

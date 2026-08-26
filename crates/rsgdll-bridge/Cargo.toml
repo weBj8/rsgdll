@@ -2,6 +2,8 @@
 name = "rsgdll-bridge"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+description = "Internal C++ longjmp firewall for rsgdll"
 
 [dependencies]
 rsgdll-platform.workspace = true

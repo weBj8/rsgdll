@@ -17,10 +17,10 @@ pub const TARGET_ARCH: &str = "x86_64";
 /// Offset of Garry's Mod's `ILuaBase` pointer inside the raw Lua state.
 pub const LUA_BASE_OFFSET: usize = rsgdll_abi::RAW_LUA_BASE_OFFSET;
 
-/// Runtime verification is intentionally withheld until real GMod E2E runs.
-pub const RUNTIME_ABI_VERIFIED: bool = false;
+/// The selected ABI passed the Linux x86_64 real-GMod GLuaTest gate.
+pub const RUNTIME_ABI_VERIFIED: bool = true;
 
-const _: () = assert!(!RUNTIME_ABI_VERIFIED);
+const _: () = assert!(RUNTIME_ABI_VERIFIED);
 
 /// Internal ABI plumbing for higher-level workspace crates.
 #[doc(hidden)]

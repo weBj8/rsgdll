@@ -2,6 +2,8 @@
 name = "rsgdll-engine"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+description = "Internal checked Source engine interfaces for rsgdll"
 
 [dependencies]
 rsgdll-engine-sys.workspace = true

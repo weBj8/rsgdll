@@ -2,6 +2,8 @@
 name = "rsgdll-platform"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+description = "Internal target selection for rsgdll"
 
 [dependencies]
 rsgdll-abi.workspace = true

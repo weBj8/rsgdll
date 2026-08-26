@@ -2,6 +2,8 @@
 name = "rsgdll-lua"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+description = "Internal checked Lua abstractions for rsgdll"
 
 [features]
 default = []

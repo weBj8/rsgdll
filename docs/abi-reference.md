@@ -50,10 +50,10 @@ future foreign value cannot create an invalid Rust enum.
 
 | Target | Build status | ABI status | E2E status |
 | --- | --- | --- | --- |
-| Linux x86_64 | build-supported | header-defined | not verified |
+| Linux x86_64 | build-supported | ABI-verified | E2E-verified (server) |
 | all others | compile-time error | not reviewed | not verified |
 
-The community `Interface.h` itself labels its 64-bit layout "not tested".
-Accordingly, this Part does **not** claim Linux x86_64 runtime ABI support.
-`rsgdll-platform::RUNTIME_ABI_VERIFIED` remains `false` until a real Garry's
-Mod run verifies the module boundary in Part 6.
+The community `Interface.h` labels its 64-bit layout "not tested". rsgdll's
+Linux x86_64 status therefore comes from the real Garry's Mod server and
+GLuaTest gate, not from that comment or from compilation alone. See
+[`targets.md`](targets.md) for the exact status vocabulary and matrix.

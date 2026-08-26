@@ -2,3 +2,5 @@
 name = "rsgdll-engine-sys"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+description = "Internal raw Source engine ABI definitions for rsgdll"

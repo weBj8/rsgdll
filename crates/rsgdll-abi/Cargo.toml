@@ -2,3 +2,5 @@
 name = "rsgdll-abi"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+description = "Internal raw Garry's Mod Lua ABI definitions for rsgdll"
