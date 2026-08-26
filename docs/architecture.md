@@ -672,6 +672,9 @@ No dependency on `gmod-rs` exists.
 
 # Part 2 — Raw GMod/Lua ABI and platform layer
 
+The implemented raw layout, exact pinned revisions, and target verification
+status are recorded in [`docs/abi-reference.md`](abi-reference.md).
+
 Implement `rsgdll-abi` as the handwritten raw ABI description.
 
 Use current authoritative Garry's Mod/community headers as references.
