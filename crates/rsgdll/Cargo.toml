@@ -9,9 +9,9 @@ engine = []
 sigscan = []
 detour = ["sigscan"]
 hook = ["sigscan", "detour"]
-async = []
+async = ["dep:rsgdll-async"]
 serde = ["rsgdll-lua/serde"]
-backtrace = []
+backtrace = ["rsgdll-module/backtrace"]
 raw = []
 full = ["engine", "hook", "async", "serde", "backtrace"]
 
@@ -20,3 +20,7 @@ rsgdll-lua.workspace = true
 rsgdll-macros.workspace = true
 rsgdll-module.workspace = true
 rsgdll-runtime.workspace = true
+rsgdll-async = { workspace = true, optional = true }
+
+[dev-dependencies]
+static_assertions = "1"

@@ -51,7 +51,7 @@ install -m755 \
     printf 'git commit: %s\n' "$(git -C "$repo_root" rev-parse HEAD)"
     printf 'GMod branch: %s\n' "$gmod_branch"
     printf 'target architecture: x86_64-unknown-linux-gnu\n'
-    printf 'enabled rsgdll features: default (none)\n'
+    printf 'enabled rsgdll features: async, backtrace, serde\n'
     printf 'build image: %s\n' "$build_image"
     docker run --rm --entrypoint /bin/bash "$build_image" \
         -c 'rustc --version --verbose; cargo --version'

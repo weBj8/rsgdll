@@ -52,6 +52,7 @@ dependencies = [
 name = "rsgdll"
 version = "0.1.0"
 dependencies = [
+ "rsgdll-async",
  "rsgdll-lua",
  "rsgdll-macros",
  "rsgdll-module",
@@ -61,6 +62,13 @@ dependencies = [
 [[package]]
 name = "rsgdll-abi"
 version = "0.1.0"
+
+[[package]]
+name = "rsgdll-async"
+version = "0.1.0"
+dependencies = [
+ "rsgdll-runtime",
+]
 
 [[package]]
 name = "rsgdll-bridge"

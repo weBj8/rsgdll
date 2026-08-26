@@ -162,6 +162,21 @@ return {
             end
         },
         {
+            name = "completes background work on the GMod main thread",
+            func = function()
+                local completionRan = false
+                module.start_background( 41 )
+
+                local result = module.complete_background( function( value )
+                    completionRan = true
+                    return value
+                end )
+
+                expect( completionRan ).to.beTrue()
+                expect( result ).to.equal( 42 )
+            end
+        },
+        {
             name = "returns Result Ok values",
             func = function()
                 expect( module.result_ok() ).to.equal( "ok" )

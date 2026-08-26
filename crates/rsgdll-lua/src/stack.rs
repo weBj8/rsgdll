@@ -222,6 +222,7 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
         Ok(unsafe { RawLuaBase::next(self.lua.raw().as_ptr(), table_index) } != 0)
     }
 
+    #[cfg(feature = "serde")]
     pub(crate) fn absolute_index(&self, index: i32) -> LuaResult<i32> {
         if index > 0 {
             return Ok(index);

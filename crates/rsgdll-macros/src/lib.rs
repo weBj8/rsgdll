@@ -1,10 +1,13 @@
 //! Developer-facing procedural macros.
 
+mod signature;
+
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{
-    FnArg, GenericArgument, ItemFn, Pat, PathArguments, ReturnType, Type, parse_macro_input,
+use signature::{
+    is_main_thread_context, is_stack_frame_context, is_unit, syntactic_result_ok_type,
 };
+use syn::{FnArg, ItemFn, Pat, ReturnType, Type, parse_macro_input};
 
 /// Marks the one function that registers a binary module's Lua API.
 #[proc_macro_attribute]
@@ -110,8 +113,10 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
     let visibility = function.vis.clone();
     let mut arguments = Vec::new();
     let mut call_arguments = Vec::new();
+    let mut has_main_thread = false;
+    let mut has_stack_frame = false;
     let mut lua_index = 0_i32;
-    for (offset, argument) in function.sig.inputs.iter().enumerate() {
+    for argument in &function.sig.inputs {
         let FnArg::Typed(argument) = argument else {
             return Err("`function` does not support method receivers");
         };
@@ -121,10 +126,19 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
         let name = &pattern.ident;
         let ty = &argument.ty;
         if is_stack_frame_context(ty) {
-            if offset != 0 {
-                return Err("`&mut StackFrame` is supported only as the first parameter");
+            if has_stack_frame || lua_index != 0 {
+                return Err("`&mut StackFrame` may appear once before Lua value parameters");
             }
+            has_stack_frame = true;
             call_arguments.push(quote! { frame });
+            continue;
+        }
+        if is_main_thread_context(ty) {
+            if has_main_thread || lua_index != 0 {
+                return Err("`&mut MainThread` may appear once before Lua value parameters");
+            }
+            has_main_thread = true;
+            call_arguments.push(quote! { &mut main_thread });
             continue;
         }
         lua_index = lua_index
@@ -173,6 +187,15 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
             attribute.path().is_ident("cfg") || attribute.path().is_ident("cfg_attr")
         })
         .collect();
+    let main_thread = has_main_thread.then(|| {
+        quote! {
+            // SAFETY: generated glue runs only inside the framework's Lua
+            // callback dispatcher on GMod's main thread.
+            let mut main_thread = unsafe {
+                ::rsgdll::__private::runtime::MainThread::__from_callback()
+            };
+        }
+    });
 
     Ok(quote! {
         #function
@@ -190,56 +213,13 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
             frame: &mut ::rsgdll::__private::lua::StackFrame<'_, '_>,
             returns: &mut ::rsgdll::__private::module::ReturnWriter<'_>,
         ) -> ::std::result::Result<(), ::rsgdll::__private::module::BoxError> {
+            #main_thread
             #(#arguments)*
             #evaluate
             #stage
             ::std::result::Result::Ok(())
         }
     })
-}
-
-fn is_stack_frame_context(ty: &Type) -> bool {
-    let Type::Reference(reference) = ty else {
-        return false;
-    };
-    if reference.mutability.is_none() {
-        return false;
-    }
-    let Type::Path(path) = reference.elem.as_ref() else {
-        return false;
-    };
-    path.path
-        .segments
-        .last()
-        .is_some_and(|segment| segment.ident == "StackFrame")
-}
-
-fn syntactic_result_ok_type(ty: &Type) -> Option<&Type> {
-    let Type::Path(path) = ty else {
-        return None;
-    };
-    let segment = path.path.segments.last()?;
-    if segment.ident != "Result" {
-        return None;
-    }
-    let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-        return None;
-    };
-    let mut types = arguments.args.iter().filter_map(|argument| match argument {
-        GenericArgument::Type(ty) => Some(ty),
-        _ => None,
-    });
-    let ok = types.next()?;
-    types.next()?;
-    types.next().is_none().then_some(ok)
-}
-
-fn is_unit(ty: Option<&Type>) -> bool {
-    match ty {
-        None => true,
-        Some(Type::Tuple(tuple)) => tuple.elems.is_empty(),
-        Some(_) => false,
-    }
 }
 
 fn stage_returns(ty: Option<&Type>) -> proc_macro2::TokenStream {

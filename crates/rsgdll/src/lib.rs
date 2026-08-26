@@ -11,6 +11,10 @@ pub use rsgdll_module as module;
 /// Main-thread runtime services.
 pub use rsgdll_runtime as runtime;
 
+/// Executor-neutral background completion adapters.
+#[cfg(feature = "async")]
+pub use rsgdll_async as async_runtime;
+
 /// Common developer-facing imports.
 pub mod prelude {
     pub use rsgdll_lua::{
@@ -20,6 +24,7 @@ pub mod prelude {
     pub use rsgdll_module::{
         BoxError, IntoLuaReturn, LuaStackValues, ModuleBuilder, install_userdata_gc,
     };
+    pub use rsgdll_runtime::{CompletionQueue, CompletionSender, MainThread, completion_queue};
 }
 
 /// Low-level escape hatches reserved for the `raw` feature.

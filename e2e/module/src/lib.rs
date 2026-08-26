@@ -1,9 +1,12 @@
 use rsgdll::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
 
 static COUNTER_DROPS: AtomicU64 = AtomicU64::new(0);
+static BACKGROUND: OnceLock<BackgroundCompletion> = OnceLock::new();
 
 #[rsgdll::module]
 fn module(module: &mut ModuleBuilder) {
@@ -26,7 +29,9 @@ fn module(module: &mut ModuleBuilder) {
         .function("counter_value", counter_value)
         .function("counter_drops", counter_drops)
         .function("binary_echo", binary_echo)
-        .function("serde_round_trip", serde_round_trip);
+        .function("serde_round_trip", serde_round_trip)
+        .function("start_background", start_background)
+        .function("complete_background", complete_background);
 }
 
 #[rsgdll::function]
@@ -218,6 +223,51 @@ fn serde_round_trip(frame: &mut StackFrame<'_, '_>) -> Result<LuaStackValues, Lu
     let value: SerdeConfig = unsafe { rsgdll::lua::serde::from_lua(frame, 1)? };
     unsafe { rsgdll::lua::serde::to_lua(frame, &value)? };
     Ok(LuaStackValues::new(1))
+}
+
+struct BackgroundCompletion {
+    sender: CompletionSender<u64>,
+    queue: Mutex<CompletionQueue<u64>>,
+}
+
+fn background() -> &'static BackgroundCompletion {
+    BACKGROUND.get_or_init(|| {
+        let (sender, queue) = completion_queue(NonZeroUsize::MIN);
+        BackgroundCompletion {
+            sender,
+            queue: Mutex::new(queue),
+        }
+    })
+}
+
+#[rsgdll::function]
+fn start_background(value: u64) -> Result<(), E2eSurfaceError> {
+    let sender = background().sender.clone();
+    let worker = std::thread::spawn(move || sender.send(value + 1));
+    worker
+        .join()
+        .map_err(|_| E2eSurfaceError("background worker panicked".to_owned()))?
+        .map_err(|_| E2eSurfaceError("completion queue closed".to_owned()))
+}
+
+#[rsgdll::function]
+fn complete_background(
+    main_thread: &mut MainThread,
+    frame: &mut StackFrame<'_, '_>,
+) -> Result<f64, E2eSurfaceError> {
+    // SAFETY: callback capture and invocation run inside the callback firewall;
+    // invocation itself uses protected ILuaBase::PCall.
+    let callback = unsafe { frame.function(1)? };
+    let mut completed = None;
+    background()
+        .queue
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .drain(main_thread, |_, value| completed = Some(value));
+    let value = completed
+        .ok_or_else(|| E2eSurfaceError("no background completion queued".to_owned()))?;
+    let (returned,) = unsafe { callback.call::<_, (f64,)>(frame, (value as f64,))? };
+    Ok(returned)
 }
 
 #[derive(Debug, Error)]

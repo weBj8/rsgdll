@@ -8,6 +8,8 @@ pub struct ErrorReport {
     context: &'static str,
     message: String,
     sources: Vec<String>,
+    #[cfg(feature = "backtrace")]
+    backtrace: Option<String>,
 }
 
 impl ErrorReport {
@@ -23,6 +25,8 @@ impl ErrorReport {
             context,
             message,
             sources,
+            #[cfg(feature = "backtrace")]
+            backtrace: Some(capture_backtrace()),
         }
     }
 
@@ -31,6 +35,21 @@ impl ErrorReport {
             context,
             message: message.into(),
             sources: Vec::new(),
+            #[cfg(feature = "backtrace")]
+            backtrace: None,
+        }
+    }
+
+    /// Returns the captured Rust backtrace when diagnostics are enabled.
+    #[must_use]
+    pub fn backtrace(&self) -> Option<&str> {
+        #[cfg(feature = "backtrace")]
+        {
+            self.backtrace.as_deref()
+        }
+        #[cfg(not(feature = "backtrace"))]
+        {
+            None
         }
     }
 
@@ -47,6 +66,9 @@ impl fmt::Display for ErrorReport {
         for source in &self.sources {
             write!(formatter, ": caused by: {source}")?;
         }
+        if let Some(backtrace) = self.backtrace() {
+            write!(formatter, "\n\nRust backtrace:\n{backtrace}")?;
+        }
         Ok(())
     }
 }
@@ -58,6 +80,8 @@ impl Error for ErrorReport {}
 pub struct PanicReport {
     context: &'static str,
     message: String,
+    #[cfg(feature = "backtrace")]
+    backtrace: Option<String>,
 }
 
 impl PanicReport {
@@ -69,7 +93,25 @@ impl PanicReport {
                 Err(_) => "non-string panic payload".to_owned(),
             },
         };
-        Self { context, message }
+        Self {
+            context,
+            message,
+            #[cfg(feature = "backtrace")]
+            backtrace: Some(capture_backtrace()),
+        }
+    }
+
+    /// Returns the captured Rust backtrace when diagnostics are enabled.
+    #[must_use]
+    pub fn backtrace(&self) -> Option<&str> {
+        #[cfg(feature = "backtrace")]
+        {
+            self.backtrace.as_deref()
+        }
+        #[cfg(not(feature = "backtrace"))]
+        {
+            None
+        }
     }
 
     pub(crate) fn append(mut self, detail: impl fmt::Display) -> Self {
@@ -81,6 +123,34 @@ impl PanicReport {
 
 impl fmt::Display for PanicReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "panic in {}: {}", self.context, self.message)
+        write!(formatter, "panic in {}: {}", self.context, self.message)?;
+        if let Some(backtrace) = self.backtrace() {
+            write!(formatter, "\n\nRust backtrace:\n{backtrace}")?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "backtrace")]
+fn capture_backtrace() -> String {
+    std::backtrace::Backtrace::force_capture().to_string()
+}
+
+#[cfg(all(test, feature = "backtrace"))]
+mod tests {
+    use super::{ErrorReport, PanicReport};
+
+    #[test]
+    fn captured_errors_and_panics_include_backtraces() {
+        // Given: one ordinary error and one panic payload.
+        let error = std::io::Error::other("failure");
+
+        // When: reports capture both failures.
+        let error = ErrorReport::capture("module.error", &error);
+        let panic = PanicReport::capture("module.panic", Box::new("failure"));
+
+        // Then: both reports retain captured Rust backtraces.
+        assert!(error.backtrace().is_some());
+        assert!(panic.backtrace().is_some());
     }
 }

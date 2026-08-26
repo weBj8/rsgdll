@@ -3,6 +3,10 @@ name = "rsgdll-module"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+backtrace = []
+
 [dependencies]
 rsgdll-bridge.workspace = true
 rsgdll-lua.workspace = true

@@ -71,10 +71,7 @@ fn rust_error_returns_before_cpp_throws_and_restores_stack() {
     assert_eq!(returned, 0);
     assert!(ERROR_DROPPED.load(Ordering::SeqCst));
     assert_eq!(fixture.stack(), &[Value::Number(7.0)]);
-    assert_eq!(
-        fixture.error(),
-        Some("module.test_error: artificial failure")
-    );
+    assert_report(fixture.error(), "module.test_error: artificial failure");
 }
 
 #[cfg(panic = "unwind")]
@@ -89,9 +86,9 @@ fn rust_panic_returns_before_cpp_throws_and_restores_stack() {
 
     assert_eq!(returned, 0);
     assert_eq!(fixture.stack(), &[Value::Number(7.0)]);
-    assert_eq!(
+    assert_report(
         fixture.error(),
-        Some("panic in module.test_panic: artificial panic")
+        "panic in module.test_panic: artificial panic",
     );
 }
 
@@ -120,8 +117,20 @@ fn callback_stack_mutation_is_reported_and_restored() {
 
     assert_eq!(returned, 0);
     assert_eq!(fixture.stack(), &[]);
-    assert_eq!(
+    assert_report(
         fixture.error(),
-        Some("module.bad_stack: callback declared 0 return values but left 1 on the stack")
+        "module.bad_stack: callback declared 0 return values but left 1 on the stack",
     );
+}
+
+fn assert_report(actual: Option<&str>, expected: &str) {
+    #[cfg(not(feature = "backtrace"))]
+    assert_eq!(actual, Some(expected));
+
+    #[cfg(feature = "backtrace")]
+    {
+        let actual = actual.expect("report is present");
+        assert!(actual.starts_with(expected));
+        assert!(actual.contains("\n\nRust backtrace:\n"));
+    }
 }

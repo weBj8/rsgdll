@@ -13,5 +13,6 @@ rsgdll-platform = { path = "crates/rsgdll-platform" }
 rsgdll-lua = { path = "crates/rsgdll-lua" }
 rsgdll-module = { path = "crates/rsgdll-module" }
 rsgdll-runtime = { path = "crates/rsgdll-runtime" }
+rsgdll-async = { path = "crates/rsgdll-async" }
 rsgdll-macros = { path = "crates/rsgdll-macros" }
 cc = "1"

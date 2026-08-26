@@ -1159,6 +1159,25 @@ Backtrace integration must enhance `ErrorReport`/`PanicReport` without changing 
 
 Extend E2E tests for async completion if async support is enabled.
 
+### Implemented runtime model
+
+`rsgdll-runtime` provides a non-`Send`, non-`Sync` `MainThread` capability
+minted only by generated callback glue. Background producers receive a
+bounded `CompletionSender<T>`; moving that sender to a worker requires
+`T: Send`. The paired `CompletionQueue<T>` can run completion handlers only
+when supplied with `&mut MainThread`, so Lua access remains in the callback
+that drains the queue.
+
+`rsgdll-async` is enabled only by the facade's `async` feature. Its
+`complete` adapter accepts any `Send` future and forwards only the future's
+owned `Send` output into the completion queue. It does not own or select an
+executor.
+
+The `serde` feature forwards to `rsgdll-lua`'s checked Lua conversion layer.
+The `backtrace` feature forwards to `rsgdll-module` and adds captured Rust
+backtraces to ordinary error and panic reports. All three features remain
+disabled by default, and `full` still excludes `raw`.
+
 ### Part 8 acceptance
 
 Background work can safely complete back onto the GMod main thread without transferring Lua state across threads.
