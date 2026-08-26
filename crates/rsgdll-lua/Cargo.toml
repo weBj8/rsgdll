@@ -5,3 +5,7 @@ edition.workspace = true
 
 [dependencies]
 rsgdll-platform.workspace = true
+
+[dev-dependencies]
+rsgdll-abi.workspace = true
+static_assertions = "1"

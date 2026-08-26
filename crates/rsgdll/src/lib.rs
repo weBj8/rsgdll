@@ -10,7 +10,9 @@ pub use rsgdll_module as module;
 pub use rsgdll_runtime as runtime;
 
 /// Common developer-facing imports.
-pub mod prelude {}
+pub mod prelude {
+    pub use rsgdll_lua::{FromLua, IntoLua, Lua, LuaError, LuaResult, Stack, StackFrame};
+}
 
 /// Low-level escape hatches reserved for the `raw` feature.
 #[cfg(feature = "raw")]
