@@ -27,7 +27,7 @@ pub struct RawRegistration {
     pub callback_id: u32,
 }
 
-/// Builds the Lua table returned by a Garry's Mod binary module.
+/// Builds the crate-named global table exported by a Garry's Mod binary module.
 pub struct ModuleBuilder<'registration> {
     registrations: &'registration mut [RawRegistration],
     count: usize,
@@ -66,21 +66,37 @@ impl ModuleBuilder<'_> {
 ///
 /// # Safety
 ///
-/// `registrations` must reference `capacity` initialized writable entries and
-/// `output_count` must be writable. Both pointers remain exclusively borrowed
-/// for this call.
+/// `registrations` must reference `capacity` initialized writable entries.
+/// Every output pointer must be writable and remain exclusively borrowed for
+/// this call.
 #[doc(hidden)]
 pub unsafe fn initialize_module(
     registrations: *mut RawRegistration,
     capacity: u32,
     output_count: *mut u32,
+    output_name: *mut *const u8,
+    output_name_length: *mut u32,
+    module_path: &'static str,
     initializer: fn(&mut ModuleBuilder<'_>),
 ) -> u8 {
-    if registrations.is_null() || output_count.is_null() {
+    if registrations.is_null()
+        || output_count.is_null()
+        || output_name.is_null()
+        || output_name_length.is_null()
+    {
         return 0;
     }
-    // SAFETY: caller guarantees both output pointers are valid and exclusive.
-    unsafe { output_count.write(0) };
+    // SAFETY: [Category 3 — dangling pointers] Caller guarantees every output
+    // pointer is live, writable, and exclusively borrowed for this call.
+    unsafe {
+        output_count.write(0);
+        output_name.write(std::ptr::null());
+        output_name_length.write(0);
+    }
+    let module_name = crate_name(module_path);
+    let Ok(module_name_length) = u32::try_from(module_name.len()) else {
+        return 0;
+    };
     let Ok(capacity) = usize::try_from(capacity) else {
         return 0;
     };
@@ -98,9 +114,31 @@ pub unsafe fn initialize_module(
     let Ok(count) = u32::try_from(builder.count) else {
         return 0;
     };
-    // SAFETY: caller guarantees `output_count` remains writable for this call.
-    unsafe { output_count.write(count) };
+    // SAFETY: [Category 3 — dangling pointers] Caller guarantees every output
+    // pointer remains live, writable, and exclusive. `module_name` references
+    // static `module_path!()` storage generated in the consumer crate.
+    unsafe {
+        output_count.write(count);
+        output_name.write(module_name.as_ptr());
+        output_name_length.write(module_name_length);
+    }
     1
 }
 
 const _: () = assert!(std::mem::size_of::<RawRegistration>() == 16);
+
+fn crate_name(module_path: &str) -> &str {
+    module_path
+        .split_once("::")
+        .map_or(module_path, |(crate_name, _)| crate_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::crate_name;
+
+    #[test]
+    fn crate_name_is_the_first_module_path_segment() {
+        assert_eq!(crate_name("rsgdll_e2e::nested"), "rsgdll_e2e");
+    }
+}

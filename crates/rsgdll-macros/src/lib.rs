@@ -34,14 +34,19 @@ pub fn module(attribute: TokenStream, item: TokenStream) -> TokenStream {
             registrations: *mut ::rsgdll::__private::module::RawRegistration,
             capacity: u32,
             output_count: *mut u32,
+            output_name: *mut *const u8,
+            output_name_length: *mut u32,
         ) -> u8 {
-            // SAFETY: C++ module entrypoint supplies its live fixed registration
-            // array and writable count for this call.
+            // SAFETY: [Category 3 — dangling pointers] C++ supplies its live
+            // fixed registration array and writable POD outputs for this call.
             unsafe {
                 ::rsgdll::__private::module::initialize_module(
                     registrations,
                     capacity,
                     output_count,
+                    output_name,
+                    output_name_length,
+                    module_path!(),
                     #name,
                 )
             }

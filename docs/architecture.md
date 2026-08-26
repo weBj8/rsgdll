@@ -883,9 +883,9 @@ use rsgdll::prelude::*;
 
 #[rsgdll::module]
 fn module(module: &mut ModuleBuilder) {
-    module
-        .function("hello", hello)
-        .function("get_user", get_user);
+module
+.function("hello", hello)
+.function("get_user", get_user);
 }
 
 #[rsgdll::function]
@@ -898,6 +898,11 @@ fn get_user(id: u64) -> Result<User, UserError> {
     ...
 }
 ```
+
+Garry's Mod's `require` does not return a binary module table. The generated
+entrypoint therefore publishes the table under the consumer crate name with
+Rust identifier spelling (`my-module` becomes `_G.my_module`) and returns zero
+Lua values, matching the official Facepunch module-base convention.
 
 The macros must generate Rust glue, not application behavior.
 

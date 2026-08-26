@@ -42,14 +42,21 @@ using PushString = void (*)(void *, const char *, std::uint32_t);
 using PushNumber = void (*)(void *, double);
 using PushBool = void (*)(void *, bool);
 using PushClosure = void (*)(void *, std::int32_t (*)(LuaState *), std::int32_t);
+using PushSpecial = void (*)(void *, std::int32_t);
+using Pop = void (*)(void *, std::int32_t);
 using SetState = void (*)(void *, LuaState *);
 using ModuleInitializer =
-    std::uint8_t (*)(ModuleRegistration *, std::uint32_t, std::uint32_t *);
+    std::uint8_t (*)(ModuleRegistration *,
+                     std::uint32_t,
+                     std::uint32_t *,
+                     const std::uint8_t **,
+                     std::uint32_t *);
 
 static std::atomic<Dispatcher> dispatcher{nullptr};
 static constexpr std::uint32_t error_capacity = 4096;
 static constexpr std::uint32_t registration_capacity = 256;
 static constexpr std::size_t throw_error_slot = 18;
+static constexpr std::size_t pop_slot = 2;
 static constexpr std::size_t create_table_slot = 6;
 static constexpr std::size_t raw_set_slot = 22;
 static constexpr std::size_t push_nil_slot = 28;
@@ -57,7 +64,9 @@ static constexpr std::size_t push_string_slot = 29;
 static constexpr std::size_t push_number_slot = 30;
 static constexpr std::size_t push_bool_slot = 31;
 static constexpr std::size_t push_closure_slot = 33;
+static constexpr std::size_t push_special_slot = 38;
 static constexpr std::size_t set_state_slot = 50;
+static constexpr std::int32_t special_global = 0;
 static constexpr std::uint32_t return_nil = 0;
 static constexpr std::uint32_t return_bool = 1;
 static constexpr std::uint32_t return_number = 2;
@@ -160,11 +169,24 @@ extern "C" int rsgdll_bridge_gmod13_open(
 
     ModuleRegistration registrations[registration_capacity]{};
     std::uint32_t count = 0;
-    if (initializer(registrations, registration_capacity, &count) == 0 ||
-        count > registration_capacity) {
+    const std::uint8_t *module_name = nullptr;
+    std::uint32_t module_name_length = 0;
+    if (initializer(registrations,
+                    registration_capacity,
+                    &count,
+                    &module_name,
+                    &module_name_length) == 0 ||
+        count > registration_capacity || module_name == nullptr ||
+        module_name_length == 0) {
         return 0;
     }
 
+    reinterpret_cast<PushSpecial>(vtable[push_special_slot])(
+        state->lua_base, special_global);
+    reinterpret_cast<PushString>(vtable[push_string_slot])(
+        state->lua_base,
+        reinterpret_cast<const char *>(module_name),
+        module_name_length);
     reinterpret_cast<CreateTable>(vtable[create_table_slot])(state->lua_base);
     for (std::uint32_t index = 0; index < count; ++index) {
         const ModuleRegistration &registration = registrations[index];
@@ -183,7 +205,9 @@ extern "C" int rsgdll_bridge_gmod13_open(
             state->lua_base, rsgdll_bridge_trampoline, 1);
         reinterpret_cast<RawSet>(vtable[raw_set_slot])(state->lua_base, -3);
     }
-    return 1;
+    reinterpret_cast<RawSet>(vtable[raw_set_slot])(state->lua_base, -3);
+    reinterpret_cast<Pop>(vtable[pop_slot])(state->lua_base, 1);
+    return 0;
 }
 
 extern "C" int rsgdll_bridge_gmod13_close(LuaState *) {
