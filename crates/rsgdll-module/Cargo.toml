@@ -4,4 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+rsgdll-bridge.workspace = true
+rsgdll-lua.workspace = true
 rsgdll-platform.workspace = true
+
+[dev-dependencies]
+rsgdll-abi.workspace = true

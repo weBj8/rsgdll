@@ -20,6 +20,8 @@ pub enum LuaError {
     StringTooLong,
     /// A frame operation would remove caller-owned stack values.
     StackUnderflow { baseline: i32, requested_top: i32 },
+    /// Callback return count disagreed with values left on the stack.
+    ReturnCountMismatch { expected: i32, actual: i32 },
     /// A count cannot be represented by the pinned ABI.
     CountOverflow,
     /// Closure upvalues are one-based.
@@ -51,6 +53,10 @@ impl fmt::Display for LuaError {
             } => write!(
                 formatter,
                 "stack frame starts at {baseline}, cannot restore requested top {requested_top}"
+            ),
+            Self::ReturnCountMismatch { expected, actual } => write!(
+                formatter,
+                "callback declared {expected} return values but left {actual} on the stack"
             ),
             Self::CountOverflow => formatter.write_str("value count exceeds the ABI integer limit"),
             Self::InvalidUpvaluePosition => {

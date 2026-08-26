@@ -1,0 +1,10 @@
+[package]
+name = "rsgdll-bridge"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rsgdll-platform.workspace = true
+
+[build-dependencies]
+cc.workspace = true

@@ -8,8 +8,10 @@ edition = "2024"
 
 [workspace.dependencies]
 rsgdll-abi = { path = "crates/rsgdll-abi" }
+rsgdll-bridge = { path = "crates/rsgdll-bridge" }
 rsgdll-platform = { path = "crates/rsgdll-platform" }
 rsgdll-lua = { path = "crates/rsgdll-lua" }
 rsgdll-module = { path = "crates/rsgdll-module" }
 rsgdll-runtime = { path = "crates/rsgdll-runtime" }
 rsgdll-macros = { path = "crates/rsgdll-macros" }
+cc = "1"

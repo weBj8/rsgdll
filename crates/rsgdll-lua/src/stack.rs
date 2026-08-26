@@ -191,6 +191,23 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
         result
     }
 
+    /// Validates and preserves callback return values before consuming the guard.
+    pub fn commit(mut self, expected_returns: usize) -> LuaResult<i32> {
+        let expected = i32::try_from(expected_returns).map_err(|_| LuaError::CountOverflow)?;
+        let current = self.top();
+        let actual = current
+            .checked_sub(self.baseline)
+            .ok_or(LuaError::StackUnderflow {
+                baseline: self.baseline,
+                requested_top: current,
+            })?;
+        if actual != expected {
+            return Err(LuaError::ReturnCountMismatch { expected, actual });
+        }
+        self.finished = true;
+        Ok(actual)
+    }
+
     fn restore(&mut self) -> LuaResult<()> {
         let current = self.top();
         if current < self.baseline {
