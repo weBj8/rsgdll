@@ -53,10 +53,13 @@ name = "rsgdll"
 version = "0.1.0"
 dependencies = [
  "rsgdll-async",
+ "rsgdll-detour",
+ "rsgdll-engine",
  "rsgdll-lua",
  "rsgdll-macros",
  "rsgdll-module",
  "rsgdll-runtime",
+ "rsgdll-sigscan",
  "static_assertions",
 ]
 
@@ -78,6 +81,26 @@ dependencies = [
  "cc",
  "rsgdll-platform",
 ]
+
+[[package]]
+name = "rsgdll-detour"
+version = "0.1.0"
+dependencies = [
+ "static_assertions",
+]
+
+[[package]]
+name = "rsgdll-engine"
+version = "0.1.0"
+dependencies = [
+ "rsgdll-engine-sys",
+ "rsgdll-runtime",
+ "static_assertions",
+]
+
+[[package]]
+name = "rsgdll-engine-sys"
+version = "0.1.0"
 
 [[package]]
 name = "rsgdll-lua"
@@ -123,6 +146,10 @@ dependencies = [
  "rsgdll-platform",
  "static_assertions",
 ]
+
+[[package]]
+name = "rsgdll-sigscan"
+version = "0.1.0"
 
 [[package]]
 name = "serde"

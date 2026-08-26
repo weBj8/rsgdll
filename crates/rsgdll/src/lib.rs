@@ -15,6 +15,18 @@ pub use rsgdll_runtime as runtime;
 #[cfg(feature = "async")]
 pub use rsgdll_async as async_runtime;
 
+/// Checked Source engine interfaces.
+#[cfg(feature = "engine")]
+pub use rsgdll_engine as engine;
+
+/// Explicit signature scanning APIs.
+#[cfg(feature = "sigscan")]
+pub use rsgdll_sigscan as sigscan;
+
+/// Explicitly unsafe detouring primitives.
+#[cfg(feature = "detour")]
+pub use rsgdll_detour as detour;
+
 /// Common developer-facing imports.
 pub mod prelude {
     pub use rsgdll_lua::{

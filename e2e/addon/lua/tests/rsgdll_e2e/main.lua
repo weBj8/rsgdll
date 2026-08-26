@@ -31,6 +31,12 @@ return {
             end
         },
         {
+            name = "uses the real dedicated Source engine interface",
+            func = function()
+                expect( module.engine_is_dedicated() ).to.beTrue()
+            end
+        },
+        {
             name = "converts primitive arguments",
             func = function()
                 expect( module.add( 20, 22 ) ).to.equal( 42 )

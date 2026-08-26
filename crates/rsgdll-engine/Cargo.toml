@@ -1,0 +1,11 @@
+[package]
+name = "rsgdll-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rsgdll-engine-sys.workspace = true
+rsgdll-runtime.workspace = true
+
+[dev-dependencies]
+static_assertions = "1"

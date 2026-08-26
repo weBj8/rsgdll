@@ -14,5 +14,9 @@ rsgdll-lua = { path = "crates/rsgdll-lua" }
 rsgdll-module = { path = "crates/rsgdll-module" }
 rsgdll-runtime = { path = "crates/rsgdll-runtime" }
 rsgdll-async = { path = "crates/rsgdll-async" }
+rsgdll-engine-sys = { path = "crates/rsgdll-engine-sys" }
+rsgdll-engine = { path = "crates/rsgdll-engine" }
+rsgdll-sigscan = { path = "crates/rsgdll-sigscan" }
+rsgdll-detour = { path = "crates/rsgdll-detour" }
 rsgdll-macros = { path = "crates/rsgdll-macros" }
 cc = "1"

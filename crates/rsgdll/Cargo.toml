@@ -5,9 +5,9 @@ edition.workspace = true
 
 [features]
 default = []
-engine = []
-sigscan = []
-detour = ["sigscan"]
+engine = ["dep:rsgdll-engine"]
+sigscan = ["dep:rsgdll-sigscan"]
+detour = ["sigscan", "dep:rsgdll-detour"]
 hook = ["sigscan", "detour"]
 async = ["dep:rsgdll-async"]
 serde = ["rsgdll-lua/serde"]
@@ -21,6 +21,9 @@ rsgdll-macros.workspace = true
 rsgdll-module.workspace = true
 rsgdll-runtime.workspace = true
 rsgdll-async = { workspace = true, optional = true }
+rsgdll-engine = { workspace = true, optional = true }
+rsgdll-sigscan = { workspace = true, optional = true }
+rsgdll-detour = { workspace = true, optional = true }
 
 [dev-dependencies]
 static_assertions = "1"

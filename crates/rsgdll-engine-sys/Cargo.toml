@@ -1,0 +1,4 @@
+[package]
+name = "rsgdll-engine-sys"
+version.workspace = true
+edition.workspace = true

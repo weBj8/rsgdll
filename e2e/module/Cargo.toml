@@ -8,7 +8,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-rsgdll = { path = "../../crates/rsgdll", features = ["async", "backtrace", "serde"] }
+rsgdll = { path = "../../crates/rsgdll", features = ["async", "backtrace", "engine", "serde"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 

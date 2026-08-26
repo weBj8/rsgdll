@@ -53,6 +53,7 @@ name = "rsgdll"
 version = "0.1.0"
 dependencies = [
  "rsgdll-async",
+ "rsgdll-engine",
  "rsgdll-lua",
  "rsgdll-macros",
  "rsgdll-module",
@@ -86,6 +87,18 @@ dependencies = [
  "serde",
  "thiserror",
 ]
+
+[[package]]
+name = "rsgdll-engine"
+version = "0.1.0"
+dependencies = [
+ "rsgdll-engine-sys",
+ "rsgdll-runtime",
+]
+
+[[package]]
+name = "rsgdll-engine-sys"
+version = "0.1.0"
 
 [[package]]
 name = "rsgdll-lua"
