@@ -5,8 +5,10 @@ shopt -s globstar nullglob
 gmod_root=/home/steam/gmodserver
 server="$gmod_root/garrysmod"
 artifacts=/e2e-artifacts
+close_hook="$artifacts/close-hook.txt"
 
 : > "$artifacts/backtrace.txt"
+rm -f "$close_hook"
 
 for stale_core in "$gmod_root"/**/core "$gmod_root"/**/core.*; do
     rm -f "$stale_core"
@@ -89,6 +91,10 @@ elif [[ "$server_status" -eq 124 ]]; then
 elif [[ -f "$module_failure" ]]; then
     outcome=MODULE_LOAD_FAILURE
 elif [[ -s "$failures" ]]; then
+    outcome=TEST_FAILURE
+elif [[ ! -f "$close_hook" ]] ||
+    [[ "$(<"$close_hook")" != "rsgdll-e2e-close-v1" ]]; then
+    printf 'close hook marker missing or invalid\n' >&2
     outcome=TEST_FAILURE
 elif [[ "$server_status" -eq 0 && -f "$clean_exit" ]] &&
     [[ "$(cat "$clean_exit")" == "true" ]]; then

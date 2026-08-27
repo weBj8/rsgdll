@@ -1,3 +1,5 @@
+mod close;
+
 use rsgdll::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
@@ -8,7 +10,7 @@ use thiserror::Error;
 static COUNTER_DROPS: AtomicU64 = AtomicU64::new(0);
 static BACKGROUND: OnceLock<BackgroundCompletion> = OnceLock::new();
 
-#[rsgdll::module]
+#[rsgdll::module(close = close::run)]
 fn module(module: &mut ModuleBuilder) {
     module
         .function("plain", plain)

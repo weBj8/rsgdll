@@ -1,5 +1,6 @@
 //! Developer-facing procedural macros.
 
+mod module_macro;
 mod signature;
 
 use proc_macro::TokenStream;
@@ -11,81 +12,13 @@ use signature::{
 use syn::{FnArg, ItemFn, Pat, ReturnType, Type, parse_macro_input};
 
 /// Marks the one function that registers a binary module's Lua API.
+///
+/// Pass `close = path` to run a safe `fn()` during final Lua-state/process
+/// teardown. With `panic = "unwind"`, hook panics are contained at the FFI
+/// boundary. Dynamic unload and reload remain unsupported.
 #[proc_macro_attribute]
 pub fn module(attribute: TokenStream, item: TokenStream) -> TokenStream {
-    if !attribute.is_empty() {
-        return compile_error("`module` does not accept arguments");
-    }
-    let function = parse_macro_input!(item as ItemFn);
-    if function.sig.asyncness.is_some()
-        || function.sig.constness.is_some()
-        || function.sig.unsafety.is_some()
-        || function.sig.abi.is_some()
-        || !function.sig.generics.params.is_empty()
-        || function.sig.inputs.len() != 1
-        || !matches!(function.sig.output, ReturnType::Default)
-    {
-        return compile_error(
-            "`module` requires `fn name(module: &mut ModuleBuilder)` with no return value",
-        );
-    }
-    let facade = match facade_path() {
-        Ok(facade) => facade,
-        Err(error) => return error.into_compile_error().into(),
-    };
-    let name = &function.sig.ident;
-    quote! {
-        #function
-
-        #[doc(hidden)]
-        unsafe extern "C" fn __rsgdll_module_initialize(
-            registrations: *mut #facade::__private::module::RawRegistration,
-            capacity: u32,
-            output_count: *mut u32,
-            output_name: *mut *const u8,
-            output_name_length: *mut u32,
-            output_abi_layout: *mut *const #facade::__private::module::AbiLayout,
-            error_buffer: *mut ::std::ffi::c_char,
-            error_capacity: u32,
-        ) -> u8 {
-            // SAFETY: [Category 3 — dangling pointers] C++ supplies its live
-            // fixed registration array and writable POD outputs for this call.
-            unsafe {
-                #facade::__private::module::initialize_module(
-                    registrations,
-                    capacity,
-                    output_count,
-                    (output_name, output_name_length, output_abi_layout),
-                    (error_buffer, error_capacity),
-                    module_path!(),
-                    #name,
-                )
-            }
-        }
-
-        #[doc(hidden)]
-        #[unsafe(naked)]
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn gmod13_open(
-            _state: *mut ::std::ffi::c_void,
-        ) -> ::std::ffi::c_int {
-            ::core::arch::naked_asm!(
-                "lea rsi, [rip + {initializer}]",
-                "jmp rsgdll_bridge_gmod13_open",
-                initializer = sym __rsgdll_module_initialize,
-            );
-        }
-
-        #[doc(hidden)]
-        #[unsafe(naked)]
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn gmod13_close(
-            _state: *mut ::std::ffi::c_void,
-        ) -> ::std::ffi::c_int {
-            ::core::arch::naked_asm!("jmp rsgdll_bridge_gmod13_close");
-        }
-    }
-    .into()
+    module_macro::expand(attribute, item)
 }
 
 /// Converts a Rust function into a descriptor accepted by `ModuleBuilder`.

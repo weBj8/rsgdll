@@ -39,6 +39,7 @@ rm -f \
     "$artifact_dir/debug.log" \
     "$artifact_dir/gluatest.log" \
     "$artifact_dir/checksums.sha256" \
+    "$artifact_dir/close-hook.txt" \
     "$artifact_dir/core-original" \
     "$artifact_dir/core-path.txt" \
     "$artifact_dir/loaded-default-module.dll" \
@@ -208,6 +209,16 @@ for required_artifact in \
         exit 1
     fi
 done
+if [[ "$expected_outcome" == PASS ]]; then
+    close_hook_marker=
+    if [[ -f "$artifact_dir/close-hook.txt" ]]; then
+        close_hook_marker="$(<"$artifact_dir/close-hook.txt")"
+    fi
+    if [[ "$close_hook_marker" != "rsgdll-e2e-close-v1" ]]; then
+        printf 'gmod13_close hook marker missing or invalid\n' >&2
+        exit 1
+    fi
+fi
 {
     printf 'loaded module sha256: %s\n' \
         "$(sha256sum "$artifact_dir/loaded-module.dll" | cut -d' ' -f1)"
@@ -278,6 +289,9 @@ if ! (
     )
     if [[ -f core ]]; then
         checksum_files+=(core core-original core-path.txt)
+    fi
+    if [[ -f close-hook.txt ]]; then
+        checksum_files+=(close-hook.txt)
     fi
     sha256sum "${checksum_files[@]}" > checksums.sha256
     sha256sum --check checksums.sha256

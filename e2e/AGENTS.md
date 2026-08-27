@@ -18,6 +18,8 @@ Real Garry's Mod/GLuaTest consumer harness; score 8 from isolated workspace and 
 - `module/Cargo.toml` keeps its own empty `[workspace]`; do not add it to root workspace.
 - Consumer code depends on `rsgdll`, never internal `rsgdll-*` crates.
 - Built modules must export `gmod13_open` and `gmod13_close` through normal loader naming.
+- Clean-shutdown runs prove the optional close hook with
+  `close-hook.txt`; expected native-crash runs cannot require that marker.
 - Keep pinned GLuaTest/runtime metadata reproducible and builds locked.
 - Classify `TEST_FAILURE`, `MODULE_LOAD_FAILURE`, `SERVER_CRASH`, and `TIMEOUT` separately.
 - Preserve Linux crash logs, core dumps, GDB backtraces, and exact binary metadata when available.

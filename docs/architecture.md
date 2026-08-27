@@ -492,9 +492,12 @@ exception may cross the bridge C ABI or a Rust frame.
 
 Version 0.1 does not support dynamic binary-module unload or reload. The host
 may invoke `gmod13_close` only during Lua-state/process teardown after native
-callbacks can no longer execute. The close entrypoint performs no cleanup
-because unloading while Lua retains closures or userdata finalizers would
-leave stale shared-object function pointers regardless of allocation cleanup.
+callbacks can no longer execute. By default the close entrypoint performs no
+cleanup. A module may opt into `#[rsgdll::module(close = on_close)]`, where
+`on_close` must be a safe `fn()` and cannot access Lua. Its panic is contained
+at the FFI boundary when `panic = "unwind"`. This teardown hook does not make dynamic unload safe:
+Lua-retained closures or userdata finalizers would still hold stale
+shared-object function pointers.
 
 The generic C++ callback should be reusable for every exported Rust function.
 

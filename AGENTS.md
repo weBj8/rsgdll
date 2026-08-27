@@ -53,6 +53,9 @@ Reference counts are unmeasured: workspace-wide LSP references were not reliable
 - Facade `default = []`; `detour -> sigscan`, `hook -> sigscan + detour`, and `full` excludes `raw`.
 - OS/architecture selection uses Rust target `cfg`, never Cargo features.
 - Safe Lua/context/reference types are main-thread-bound and receive capabilities explicitly.
+- `#[rsgdll::module(close = hook)]` accepts only a safe `fn()` for final
+  Lua-state/process teardown; it has no Lua access and does not make dynamic
+  unload or reload supported.
 - Rust-facing failures use `Result<T, E>` and preserve `Display` plus `Error::source()` chains.
 - Unsafe code stays at real ABI/FFI boundaries, denies `unsafe_op_in_unsafe_fn`, and carries nearby `SAFETY:` invariants.
 - Shared C/C++ ABI declarations originate in Rust stable-layout types and generate headers into `OUT_DIR`.

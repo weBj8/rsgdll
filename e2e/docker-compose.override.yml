@@ -3,6 +3,8 @@ services:
     container_name: ${RSGDLL_E2E_CONTAINER_NAME}
     restart: "no"
     entrypoint: ["/bin/bash", "/home/steam/rsgdll-entrypoint.sh"]
+    environment:
+      RSGDLL_E2E_CLOSE_MARKER: /e2e-artifacts/close-hook.txt
     ulimits:
       core:
         soft: -1

@@ -65,9 +65,12 @@ operations described above.
 Version 0.1 does not support dynamically unloading or reloading a compiled
 module. The module must remain loaded until its Lua state and process are being
 torn down, after the host can no longer invoke exported closures or userdata
-finalizers. `gmod13_close` therefore performs no Rust cleanup: unloading the
-shared object while Lua retains native callbacks would leave stale function
-pointers and cannot be made safe by allocation cleanup alone.
+finalizers. `gmod13_close` performs no Rust cleanup by default. Modules may
+register a teardown-only safe `fn()` with
+`#[rsgdll::module(close = on_close)]`; the hook cannot access Lua and its panic
+is contained at the FFI boundary when `panic = "unwind"`. Unloading the shared
+object while Lua retains native callbacks would still leave stale function
+pointers and cannot be made safe by this hook.
 
 `Types.h` supplies type tags through `SurfaceInfo = 43` and
 `Type_Count = 44`. `LuaType` is a transparent integer newtype so an unknown
