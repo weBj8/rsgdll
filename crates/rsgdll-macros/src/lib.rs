@@ -90,19 +90,28 @@ pub fn module(attribute: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Converts a Rust function into a descriptor accepted by `ModuleBuilder`.
 ///
+/// Pass `serde` to deserialize each Lua parameter and serialize the return
+/// value through the facade's optional `serde` feature.
+///
 /// `Result<T, E>` is recognized syntactically. A return type alias hiding
 /// `Result` is therefore treated as a plain return value in this initial API.
 #[proc_macro_attribute]
 pub fn function(attribute: TokenStream, item: TokenStream) -> TokenStream {
-    if !attribute.is_empty() {
-        return compile_error("`function` does not accept arguments");
-    }
+    let serde = if attribute.is_empty() {
+        false
+    } else {
+        let mode = parse_macro_input!(attribute as syn::Ident);
+        if mode != "serde" {
+            return compile_error("`function` accepts only the optional `serde` argument");
+        }
+        true
+    };
     let function = parse_macro_input!(item as ItemFn);
     let facade = match facade_path() {
         Ok(facade) => facade,
         Err(error) => return error.into_compile_error().into(),
     };
-    match expand_function(function, &facade) {
+    match expand_function(function, &facade, serde) {
         Ok(tokens) => tokens.into(),
         Err(message) => compile_error(message),
     }
@@ -111,6 +120,7 @@ pub fn function(attribute: TokenStream, item: TokenStream) -> TokenStream {
 fn expand_function(
     mut function: ItemFn,
     facade: &proc_macro2::TokenStream,
+    serde: bool,
 ) -> Result<proc_macro2::TokenStream, &'static str> {
     if function.sig.asyncness.is_some()
         || function.sig.constness.is_some()
@@ -160,12 +170,21 @@ fn expand_function(
             .checked_add(1)
             .ok_or("`function` has too many parameters")?;
         let index = lua_index;
-        arguments.push(quote! {
-            let #name: #ty = frame
-                .get(#index)
-                .map_err(|error| -> #facade::__private::module::BoxError {
-                    ::std::boxed::Box::new(error)
-                })?;
+        arguments.push(if serde {
+            quote! {
+                let #name: #ty = #facade::lua::serde::from_lua(frame, #index)
+                    .map_err(|error| -> #facade::__private::module::BoxError {
+                        ::std::boxed::Box::new(error)
+                    })?;
+            }
+        } else {
+            quote! {
+                let #name: #ty = frame
+                    .get(#index)
+                    .map_err(|error| -> #facade::__private::module::BoxError {
+                        ::std::boxed::Box::new(error)
+                    })?;
+            }
         });
         call_arguments.push(quote! { #name });
     }
@@ -191,7 +210,7 @@ fn expand_function(
     } else {
         quote! { let output = #call; }
     };
-    let stage = stage_returns(result_type, facade);
+    let stage = stage_returns(result_type, facade, serde);
 
     function.sig.ident = implementation_name;
     function.vis = syn::Visibility::Inherited;
@@ -237,7 +256,25 @@ fn expand_function(
     })
 }
 
-fn stage_returns(ty: Option<&Type>, facade: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+fn stage_returns(
+    ty: Option<&Type>,
+    facade: &proc_macro2::TokenStream,
+    serde: bool,
+) -> proc_macro2::TokenStream {
+    if serde && ty.is_some_and(|ty| !is_unit(Some(ty))) {
+        return quote! {
+            #facade::lua::serde::to_lua(frame, &output).map_err(
+                |error| -> #facade::__private::module::BoxError {
+                    ::std::boxed::Box::new(error)
+                },
+            )?;
+            returns.push(#facade::module::LuaStackValues::new(1)).map_err(
+                |error| -> #facade::__private::module::BoxError {
+                    ::std::boxed::Box::new(error)
+                },
+            )?;
+        };
+    }
     match ty {
         None => quote! {},
         Some(Type::Tuple(tuple)) if tuple.elems.is_empty() => quote! {},

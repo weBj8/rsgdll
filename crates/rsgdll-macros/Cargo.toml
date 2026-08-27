@@ -16,4 +16,5 @@ quote = "1"
 syn = { version = "2", features = ["full"] }
 
 [dev-dependencies]
-framework = { package = "rsgdll", path = "../rsgdll" }
+framework = { package = "rsgdll", path = "../rsgdll", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }

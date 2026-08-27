@@ -235,11 +235,9 @@ struct SerdeConfig {
     scores: Vec<u64>,
 }
 
-#[rsgdll::function]
-fn serde_round_trip(frame: &mut StackFrame<'_, '_>) -> Result<LuaStackValues, LuaError> {
-    let value: SerdeConfig = rsgdll::lua::serde::from_lua(frame, 1)?;
-    rsgdll::lua::serde::to_lua(frame, &value)?;
-    Ok(LuaStackValues::new(1))
+#[rsgdll::function(serde)]
+fn serde_round_trip(value: SerdeConfig) -> Result<SerdeConfig, LuaError> {
+    Ok(value)
 }
 
 struct BackgroundCompletion {

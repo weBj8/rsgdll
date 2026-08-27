@@ -160,6 +160,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rsgdll",
+ "serde",
  "syn 2.0.119",
 ]
 
