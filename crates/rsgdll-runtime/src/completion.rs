@@ -44,3 +44,31 @@ pub fn completion_queue<T>(capacity: NonZeroUsize) -> (CompletionSender<T>, Comp
     let (sender, receiver) = sync_channel(capacity.get());
     (CompletionSender(sender), CompletionQueue(receiver))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::thread;
+
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+
+    use super::*;
+
+    assert_not_impl_any!(MainThread: Send, Sync);
+    assert_impl_all!(CompletionSender<u64>: Clone, Send, Sync);
+
+    #[test]
+    fn worker_values_complete_only_during_main_thread_drain() {
+        let (sender, mut queue) = completion_queue(NonZeroUsize::MIN);
+        let worker = thread::spawn(move || sender.send(42_u64));
+        worker.join().expect("worker exits").expect("queue is open");
+        let mut completed = Vec::new();
+        let mut main_thread = MainThread::new();
+
+        assert_eq!(
+            queue.drain(&mut main_thread, |_, value| completed.push(value)),
+            1
+        );
+        assert_eq!(completed, [42]);
+        assert_eq!(queue.drain(&mut main_thread, |_, _| {}), 0);
+    }
+}

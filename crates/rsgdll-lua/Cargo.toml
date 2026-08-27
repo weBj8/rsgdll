@@ -4,16 +4,19 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Internal checked Lua abstractions for rsgdll"
+license.workspace = true
 
 [features]
 default = []
 serde = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
+rsgdll-bridge.workspace = true
 rsgdll-platform.workspace = true
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 rsgdll-abi.workspace = true
+rsgdll-bridge = { workspace = true, features = ["test-support"] }
 static_assertions = "1"

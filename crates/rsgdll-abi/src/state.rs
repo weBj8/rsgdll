@@ -19,6 +19,9 @@ pub struct RawLuaState {
 /// Offset of `lua_State::luabase` on the header-defined Linux x86_64 target.
 pub const RAW_LUA_BASE_OFFSET: usize = offset_of!(RawLuaState, lua_base);
 
+#[doc(hidden)]
+pub const RSGDLL_ABI_LUA_BASE_OFFSET: usize = RAW_LUA_BASE_OFFSET;
+
 const _: () = assert!(RAW_LUA_BASE_OFFSET == 120);
 const _: () = assert!(size_of::<RawLuaState>() == 128);
 const _: () = assert!(align_of::<RawLuaState>() == 8);

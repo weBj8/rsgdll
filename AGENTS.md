@@ -347,7 +347,7 @@ Do not force users to convert application errors into a framework-specific Lua e
 
 ## C++ error firewall
 
-The project intentionally contains a very small C++ bridge.
+The project intentionally contains a bounded, auditable C++ bridge.
 
 Its primary purpose is to ensure this sequence:
 
@@ -367,7 +367,11 @@ C++ receives POD result
 C++ raises Lua error
 ```
 
-The C++ layer must remain small.
+The handwritten C++ layer must remain at or below 600 pure lines in
+`crates/rsgdll-bridge/src/firewall.cpp`; its build script enforces this limit.
+Shared ABI declarations should be generated from Rust instead of duplicated
+by hand. Do not reduce this count by moving potentially throwing Lua calls
+into Rust frames.
 
 Do not move normal Lua abstractions, conversions, module logic, runtime logic, engine APIs, or user code into C++.
 

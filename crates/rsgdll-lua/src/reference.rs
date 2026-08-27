@@ -4,13 +4,14 @@ use std::rc::Rc;
 
 use rsgdll_platform::__private::{RawLuaBase, RawLuaState};
 
-use crate::{LuaError, LuaResult, StackFrame};
+use crate::{LuaError, LuaResult, StackFrame, protected};
 
 /// One registry-owned Lua value tied to its originating state lifetime.
 ///
 /// The reference is neither `Send` nor `Sync`. Dropping it releases the
 /// registry slot while the state lifetime proves that `ILuaBase` remains live.
 pub struct RegistryReference<'lua> {
+    state: NonNull<RawLuaState>,
     raw: NonNull<RawLuaBase>,
     id: i32,
     _state: PhantomData<&'lua mut RawLuaState>,
@@ -18,8 +19,13 @@ pub struct RegistryReference<'lua> {
 }
 
 impl<'lua> RegistryReference<'lua> {
-    pub(crate) const fn new(raw: NonNull<RawLuaBase>, id: i32) -> Self {
+    pub(crate) const fn new(
+        state: NonNull<RawLuaState>,
+        raw: NonNull<RawLuaBase>,
+        id: i32,
+    ) -> Self {
         Self {
+            state,
             raw,
             id,
             _state: PhantomData,
@@ -28,26 +34,16 @@ impl<'lua> RegistryReference<'lua> {
     }
 
     /// Pushes the referenced value onto its originating Lua stack.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure stack growth cannot raise a Lua error or longjmp.
-    pub unsafe fn push(&self, frame: &mut StackFrame<'_, 'lua>) -> LuaResult<()> {
-        if self.raw != frame.raw() {
+    pub fn push(&self, frame: &mut StackFrame<'_, 'lua>) -> LuaResult<()> {
+        if self.raw != frame.raw() || self.state != frame.state() {
             return Err(LuaError::WrongState);
         }
-        // SAFETY: state identity matches and caller guarantees stack growth
-        // cannot longjmp across this Rust frame.
-        unsafe { RawLuaBase::reference_push(self.raw.as_ptr(), self.id) };
-        Ok(())
+        protected::reference_push(protected::Context::new(self.state, self.raw), self.id)
     }
 }
 
 impl Drop for RegistryReference<'_> {
     fn drop(&mut self) {
-        // SAFETY: upstream `ReferenceFree` only removes a raw registry entry
-        // and does not invoke metamethods or allocate. The state lifetime
-        // guarantees that this `ILuaBase` remains live until after this drop.
-        unsafe { RawLuaBase::reference_free(self.raw.as_ptr(), self.id) };
+        let _ = protected::reference_free(protected::Context::new(self.state, self.raw), self.id);
     }
 }

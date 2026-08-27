@@ -78,7 +78,7 @@ rsgdll/
 │   ├── rsgdll-module/          # module lifecycle + dispatch
 │   ├── rsgdll-runtime/         # runtime/main-thread services
 │   ├── rsgdll-macros/          # proc macros
-│   ├── rsgdll-bridge/          # tiny C++ longjmp boundary
+│   ├── rsgdll-bridge/          # bounded C++ longjmp boundary
 │   │
 │   ├── rsgdll-async/           # optional
 │   ├── rsgdll-engine-sys/      # optional raw Source ABI
@@ -156,6 +156,9 @@ rsgdll
   `lua`, `module`, `runtime`, `prelude`, and macro-plumbing namespaces.
 - `rsgdll-abi` is the dependency-light raw ABI leaf and has no dependencies
   on safe framework crates.
+- ABI offsets remain ordinary Rust constants. Module initialization passes one
+  immutable, module-local layout pointer to the private C++ bridge; consumer
+  binaries export only the two GMod entrypoints, never ABI data symbols.
 - `rsgdll-platform` isolates target-specific behavior above the raw ABI.
 - `rsgdll-lua`, `rsgdll-module`, and `rsgdll-runtime` are separate safe
   subsystem boundaries above the platform layer.
@@ -219,7 +222,8 @@ backtrace
     enables enhanced Rust diagnostic/backtrace support
 
 raw
-    exposes explicitly low-level ABI escape hatches
+    reserves the future low-level ABI escape-hatch namespace;
+    version 0.1 exposes no raw ABI items
 
 full
     enables normal optional capabilities
@@ -284,6 +288,46 @@ Argument/type validation in Rust must instead return ordinary Rust errors.
 
 Calls into arbitrary Lua must use protected execution where available.
 
+Potentially throwing stack, allocation, table, registry, call, and userdata
+operations use a prepared executor:
+
+```text
+C++ trampoline
+  -> reserve stack capacity and registry-store executor closure
+  -> enter Rust
+Rust
+  -> fill one POD operation descriptor
+  -> call C++ bridge
+C++ bridge
+  -> copy existing operands using reserved non-allocating stack slots
+  -> invoke executor closure with ILuaBase::PCall
+  -> return status and results to Rust
+```
+
+The executor closure is created before Rust is entered. A Lua error raised by
+an allocating operation therefore lands in `PCall` inside C++ and becomes a
+normal status before C++ returns to Rust. Callback re-entry while an operation
+is active is rejected on the C++ side, so a second mutable Lua capability
+cannot be created while the original Rust frame is live. One operation accepts
+at most 64 copied arguments or results so its setup remains inside the stack
+capacity reserved before Rust entry.
+
+Each loaded module also records active Rust callback execution under the same
+private Lua-registry key. A trampoline checks that key through its prepared
+`PCall` executor before entering Rust, rejects cross-module re-entry in C++,
+and clears only the marker it acquired after Rust returns. This registry state
+is shared by separate `cdylib` copies where module-local thread storage is not.
+GMod exposes `debug.getregistry()` as a metatable proxy rather than this real
+`SPECIAL_REG` table, so ordinary Lua cannot clear the marker; hostile native
+modules are outside this guard's threat model.
+
+Safe extension traits do not supply trusted stack facts. Before a protected
+call, the framework compares the reported argument count with the actual
+frame-owned stack delta. After dispatch, C++ accepts stack-return mode only
+when the return count equals the observed stack delta. Cleanup operations
+remain available above the normal operation ceiling so failed calls can
+restore the stack and clear the re-entry marker.
+
 ---
 
 ## 3. Rust errors remain normal Rust errors
@@ -336,7 +380,7 @@ local ok, result = pcall(module.get_user, ...)
 
 # Rust → Lua error architecture
 
-Implement the error flow using a tiny C++ boundary.
+Implement the error flow using a bounded, auditable C++ boundary.
 
 The required call flow is:
 
@@ -370,7 +414,16 @@ generic C++ callback trampoline
 
 The `ThrowError` occurs only after Rust has completely returned.
 
-The C++ bridge should be extremely small.
+The handwritten C++ bridge must stay within 600 pure lines. `build.rs`
+enforces this budget on non-blank, non-`//` lines in `firewall.cpp`.
+Shared POD layouts and numeric constants in `firewall_abi.h`, including
+`ModuleRegistration`, are generated from the `#[repr(C)]` definitions in
+`rsgdll-bridge`. C++ function-pointer aliases remain maintained by the header
+generator. Generated declarations do not count toward the handwritten budget.
+
+The protected executor necessarily performs stack choreography and every
+potentially throwing Lua mutation on the C++ side. A lower line target must
+not move those calls into Rust frames merely to reduce C++ size.
 
 Do not move Lua abstractions, conversion logic, userdata management, runtime management, or application behavior into C++.
 
@@ -384,14 +437,17 @@ Use a dedicated internal crate:
 rsgdll-bridge
 ```
 
-It may compile a very small C++ source with the `cc` build dependency.
+It compiles one bounded handwritten C++ source with the `cc` build dependency.
 
 Keep C++ limited to approximately:
 
 - receiving the Lua callback;
 - calling a Rust dispatcher function pointer;
+- preparing and invoking the generic protected-operation executor;
+- interpreting one fixed-layout Lua operation descriptor;
 - examining a POD dispatch result;
-- raising the Lua error after Rust returns.
+- raising the Lua error after Rust returns;
+- publishing the module global table after the Rust initializer returns.
 
 Avoid:
 
@@ -408,13 +464,13 @@ Prefer a function-pointer registration model so multiple independently loaded `r
 Conceptual architecture:
 
 ```text
-Rust module initialization
+gmod13_open tail-jumps to C++
         │
-        ▼
-rsgdll_bridge_set_dispatcher(fn_ptr)
-        │
-        ▼
-C++ bridge stores dispatcher pointer
+        ├── C++ allocates fixed ModuleRegistration storage
+        ├── Rust initializer performs non-Lua registration
+        ├── Rust catches panics and returns POD metadata
+        └── after every Rust frame returns, C++ publishes the global table
+            with potentially longjmping Lua operations
         │
 Lua callback
         ▼
@@ -423,6 +479,22 @@ rsgdll_bridge_trampoline(lua_State*)
         ▼
 stored Rust dispatcher
 ```
+
+The entrypoint tail jump leaves no Rust entrypoint frame beneath C++. C++ does
+not perform Lua operations while the Rust initializer is active. Keeping module
+publication on the longjmp side is therefore part of the firewall contract, not
+application logic.
+
+The supported foreign runtime is the pinned default Garry's Mod `ILuaBase`
+implementation. Direct exact-type reads must return normally; replacement
+implementations that throw C++ exceptions are unsupported, and no C++
+exception may cross the bridge C ABI or a Rust frame.
+
+Version 0.1 does not support dynamic binary-module unload or reload. The host
+may invoke `gmod13_close` only during Lua-state/process teardown after native
+callbacks can no longer execute. The close entrypoint performs no cleanup
+because unloading while Lua retains closures or userdata finalizers would
+leave stale shared-object function pointers regardless of allocation cleanup.
 
 The generic C++ callback should be reusable for every exported Rust function.
 
@@ -579,7 +651,9 @@ For example:
 index out of bounds: ...
 ```
 
-If the final binary is built with an aborting panic strategy, document that graceful panic conversion is unavailable.
+If the final binary uses `panic = "abort"`, Rust terminates the process
+immediately. Graceful panic conversion and Lua-visible `PanicReport`
+diagnostics are available only with `panic = "unwind"`.
 
 ---
 
@@ -820,7 +894,8 @@ rsgdll-bridge
 
 and implement the longjmp firewall described above.
 
-The C++ bridge must remain tiny.
+The C++ bridge must remain within the measured handwritten budget and the
+responsibilities above.
 
 Integrate it with `rsgdll-module`.
 
@@ -1336,7 +1411,8 @@ Before declaring the framework complete, verify these invariants:
 
 9. thiserror errors format naturally through Display/source.
 
-10. C++ exists only as a small exception/longjmp firewall.
+10. Handwritten C++ stays within its enforced budget and contains only the
+    exception/longjmp firewall responsibilities listed above.
 
 11. Rust panics never unwind into GMod/C++ when graceful handling
     is available.

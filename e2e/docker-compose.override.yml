@@ -1,5 +1,6 @@
 services:
   runner:
+    container_name: ${RSGDLL_E2E_CONTAINER_NAME}
     restart: "no"
     entrypoint: ["/bin/bash", "/home/steam/rsgdll-entrypoint.sh"]
     ulimits:

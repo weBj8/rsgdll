@@ -4,3 +4,4 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Internal signature scanning implementation for rsgdll"
+license.workspace = true

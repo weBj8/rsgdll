@@ -16,8 +16,10 @@ fn module(module: &mut ModuleBuilder) {
         .function("primitives", primitives)
         .function("result_ok", result_ok)
         .function("result_err", result_err)
+        .function("overflow_stack", overflow_stack)
         .function("panic_now", panic_now)
         .function("make_table", make_table)
+        .function("recover_table_set", recover_table_set)
         .function("table_answer", table_answer)
         .function("export_plus_one", export_plus_one)
         .function("call_once", call_once)
@@ -33,6 +35,8 @@ fn module(module: &mut ModuleBuilder) {
         .function("engine_is_dedicated", engine_is_dedicated)
         .function("start_background", start_background)
         .function("complete_background", complete_background);
+    #[cfg(feature = "crash-test")]
+    module.function("native_crash", native_crash);
 }
 
 #[rsgdll::function]
@@ -67,33 +71,59 @@ fn result_err() -> Result<(), E2eError> {
 }
 
 #[rsgdll::function]
+fn overflow_stack(frame: &mut StackFrame<'_, '_>) -> Result<(), LuaError> {
+    for _ in 0..130 {
+        frame.push(())?;
+    }
+    Ok(())
+}
+
+#[rsgdll::function]
 fn panic_now() {
     panic!("intentional E2E panic");
 }
 
+#[cfg(feature = "crash-test")]
+#[rsgdll::function]
+fn native_crash() {
+    std::process::abort();
+}
+
 #[rsgdll::function]
 fn make_table(frame: &mut StackFrame<'_, '_>) -> Result<LuaStackValues, LuaError> {
-    // SAFETY: exercised inside GMod's callback boundary; these ordinary pushes
-    // and table assignments are not allowed to longjmp across Rust.
-    unsafe {
-        frame.create_table();
-        frame.push("answer")?;
-        frame.push(42.0)?;
-        frame.raw_set(-3)?;
-        frame.push("label")?;
-        frame.push("from Rust")?;
-        frame.raw_set(-3)?;
-    }
+    frame.create_table()?;
+    frame.push("answer")?;
+    frame.push(42.0)?;
+    frame.raw_set(-3)?;
+    frame.push("label")?;
+    frame.push("from Rust")?;
+    frame.raw_set(-3)?;
     Ok(LuaStackValues::new(1))
+}
+
+struct PushThenFail;
+
+impl IntoLua for PushThenFail {
+    fn into_lua(self, lua: &mut Lua<'_>) -> Result<(), LuaError> {
+        true.into_lua(lua)?;
+        Err(LuaError::CountOverflow)
+    }
+}
+
+#[rsgdll::function]
+fn recover_table_set(frame: &mut StackFrame<'_, '_>) -> Result<f64, LuaError> {
+    let table = frame.new_table()?;
+    match table.set(frame, "key", PushThenFail) {
+        Err(LuaError::CountOverflow) => Ok(42.0),
+        Err(error) => Err(error),
+        Ok(()) => Err(LuaError::CountOverflow),
+    }
 }
 
 #[rsgdll::function]
 fn table_answer(frame: &mut StackFrame<'_, '_>) -> Result<f64, LuaError> {
-    // SAFETY: argument one is validated as a table by raw_get.
-    unsafe {
-        frame.push("answer")?;
-        frame.raw_get(1)?;
-    }
+    frame.push("answer")?;
+    frame.raw_get(1)?;
     let answer = frame.get(-1)?;
     frame.pop(1)?;
     Ok(answer)
@@ -108,51 +138,40 @@ fn plus_one(value: f64) -> f64 {
 fn export_plus_one(
     frame: &mut StackFrame<'_, '_>,
 ) -> Result<LuaStackValues, E2eSurfaceError> {
-    // SAFETY: generated closure push runs inside the module callback boundary.
-    unsafe {
-        plus_one
-            .push(frame)
-            .map_err(|error| E2eSurfaceError(error.to_string()))?
-    };
+    plus_one
+        .push(frame)
+        .map_err(|error| E2eSurfaceError(error.to_string()))?;
     Ok(LuaStackValues::new(1))
 }
 
 #[rsgdll::function]
 fn call_once(frame: &mut StackFrame<'_, '_>) -> Result<f64, LuaError> {
-    // SAFETY: registry operations and argument push run inside callback
-    // boundary; invocation itself uses ILuaBase::PCall.
-    let function = unsafe { frame.function(1)? };
+    let function = frame.function(1)?;
     let argument = frame.get::<f64>(2)?;
-    let (result,) = unsafe { function.call::<_, (f64,)>(frame, (argument,))? };
+    let (result,) = function.call::<_, (f64,)>(frame, (argument,))?;
     Ok(result)
 }
 
 #[rsgdll::function]
 fn call_multi(frame: &mut StackFrame<'_, '_>) -> Result<(String, f64, bool), LuaError> {
-    // SAFETY: registry operations run inside callback boundary; invocation is
-    // protected by ILuaBase::PCall.
-    let function = unsafe { frame.function(1)? };
-    unsafe { function.call(frame, ()) }
+    let function = frame.function(1)?;
+    function.call(frame, ())
 }
 
 #[rsgdll::function]
 fn table_and_value(frame: &mut StackFrame<'_, '_>) -> Result<LuaStackValues, LuaError> {
-    // SAFETY: ordinary table/value pushes run inside callback boundary.
-    unsafe {
-        frame.create_table();
-        frame.push("kind")?;
-        frame.push("complex")?;
-        frame.raw_set(-3)?;
-        frame.push(9.0)?;
-    }
+    frame.create_table()?;
+    frame.push("kind")?;
+    frame.push("complex")?;
+    frame.raw_set(-3)?;
+    frame.push(9.0)?;
     Ok(LuaStackValues::new(2))
 }
 
 #[rsgdll::function]
 fn registry_roundtrip(frame: &mut StackFrame<'_, '_>) -> Result<LuaStackValues, LuaError> {
-    // SAFETY: registry create/push run inside callback boundary.
-    let reference = unsafe { frame.create_reference(1)? };
-    unsafe { reference.push(frame)? };
+    let reference = frame.create_reference(1)?;
+    reference.push(frame)?;
     Ok(LuaStackValues::new(1))
 }
 
@@ -169,30 +188,23 @@ impl Drop for Counter {
 #[rsgdll::function]
 fn new_counter(frame: &mut StackFrame<'_, '_>) -> Result<LuaStackValues, E2eSurfaceError> {
     let initial = frame.get::<f64>(1)?;
-    // SAFETY: userdata/metatable/closure operations run inside callback
-    // boundary and are covered by the public unsafe contracts.
-    unsafe {
-        let kind = frame
-            .userdata_type::<Counter>("rsgdll_e2e.Counter")
-            .map_err(E2eSurfaceError::from)?;
-        counter_add
-            .install_method(frame, &kind, "add")
-            .map_err(|error| E2eSurfaceError(error.to_string()))?;
-        counter_value
-            .install_method(frame, &kind, "value")
-            .map_err(|error| E2eSurfaceError(error.to_string()))?;
-        install_userdata_gc(frame, &kind)
-            .map_err(|error| E2eSurfaceError(error.to_string()))?;
-        kind.push(frame, Counter { value: initial })
-            .map_err(E2eSurfaceError::from)?;
-    }
+    let kind = frame
+        .userdata_type::<Counter>("rsgdll_e2e.Counter")
+        .map_err(E2eSurfaceError::from)?;
+    counter_add
+        .install_method(frame, &kind, "add")
+        .map_err(|error| E2eSurfaceError(error.to_string()))?;
+    counter_value
+        .install_method(frame, &kind, "value")
+        .map_err(|error| E2eSurfaceError(error.to_string()))?;
+    kind.push(frame, Counter { value: initial })
+        .map_err(E2eSurfaceError::from)?;
     Ok(LuaStackValues::new(1))
 }
 
 #[rsgdll::function]
 fn counter_add(frame: &mut StackFrame<'_, '_>) -> Result<f64, LuaError> {
-    // SAFETY: retrieving an existing named metatable runs inside callback.
-    let kind = unsafe { frame.userdata_type::<Counter>("rsgdll_e2e.Counter")? };
+    let kind = frame.userdata_type::<Counter>("rsgdll_e2e.Counter")?;
     let amount = frame.get::<f64>(2)?;
     let mut counter = kind.borrow_mut(frame, 1)?;
     counter.value += amount;
@@ -201,8 +213,7 @@ fn counter_add(frame: &mut StackFrame<'_, '_>) -> Result<f64, LuaError> {
 
 #[rsgdll::function]
 fn counter_value(frame: &mut StackFrame<'_, '_>) -> Result<f64, LuaError> {
-    // SAFETY: retrieving an existing named metatable runs inside callback.
-    let kind = unsafe { frame.userdata_type::<Counter>("rsgdll_e2e.Counter")? };
+    let kind = frame.userdata_type::<Counter>("rsgdll_e2e.Counter")?;
     let value = kind.borrow(frame, 1)?.value;
     Ok(value)
 }
@@ -226,9 +237,8 @@ struct SerdeConfig {
 
 #[rsgdll::function]
 fn serde_round_trip(frame: &mut StackFrame<'_, '_>) -> Result<LuaStackValues, LuaError> {
-    // SAFETY: table iteration and serialization pushes run inside callback.
-    let value: SerdeConfig = unsafe { rsgdll::lua::serde::from_lua(frame, 1)? };
-    unsafe { rsgdll::lua::serde::to_lua(frame, &value)? };
+    let value: SerdeConfig = rsgdll::lua::serde::from_lua(frame, 1)?;
+    rsgdll::lua::serde::to_lua(frame, &value)?;
     Ok(LuaStackValues::new(1))
 }
 
@@ -262,9 +272,7 @@ fn complete_background(
     main_thread: &mut MainThread,
     frame: &mut StackFrame<'_, '_>,
 ) -> Result<f64, E2eSurfaceError> {
-    // SAFETY: callback capture and invocation run inside the callback firewall;
-    // invocation itself uses protected ILuaBase::PCall.
-    let callback = unsafe { frame.function(1)? };
+    let callback = frame.function(1)?;
     let mut completed = None;
     background()
         .queue
@@ -273,7 +281,7 @@ fn complete_background(
         .drain(main_thread, |_, value| completed = Some(value));
     let value = completed
         .ok_or_else(|| E2eSurfaceError("no background completion queued".to_owned()))?;
-    let (returned,) = unsafe { callback.call::<_, (f64,)>(frame, (value as f64,))? };
+    let (returned,) = callback.call::<_, (f64,)>(frame, (value as f64,))?;
     Ok(returned)
 }
 

@@ -8,6 +8,10 @@ artifacts=/e2e-artifacts
 
 : > "$artifacts/backtrace.txt"
 
+for stale_core in "$gmod_root"/**/core "$gmod_root"/**/core.*; do
+    rm -f "$stale_core"
+done
+
 if ! ulimit -c unlimited; then
     printf 'failed to set RLIMIT_CORE=unlimited\n' >> "$artifacts/backtrace.txt"
 fi
@@ -31,15 +35,19 @@ copy_first debug.log
 
 core_file=
 for candidate in "$gmod_root"/**/core "$gmod_root"/**/core.*; do
-    if [[ -f "$candidate" ]]; then
+    if [[ -f "$candidate" && ( -z "$core_file" || "$candidate" -nt "$core_file" ) ]]; then
         core_file="$candidate"
-        break
     fi
 done
+{
+    if [[ -n "$core_file" ]]; then
+        printf '%s\n' "$core_file"
+    fi
+} > "$artifacts/core-path.txt"
 if [[ -n "$core_file" ]]; then
-    cp "$core_file" "$artifacts/core"
+    cp --no-preserve=mode "$core_file" "$artifacts/core"
     server_binary="$gmod_root/bin/linux64/srcds"
-    if [[ -n "$server_binary" ]]; then
+    if [[ -x "$server_binary" ]]; then
         gdb --batch \
             -ex "set pagination off" \
             -ex "thread apply all bt full" \
@@ -57,10 +65,19 @@ module_path="$server/lua/bin/gmsv_rsgdll_e2e_linux64.dll"
 if [[ -f "$module_path" && ! -f "$artifacts/tested-module.dll" ]]; then
     cp "$module_path" "$artifacts/tested-module.dll"
 fi
+default_module_path="$server/lua/bin/gmsv_rsgdll_example_linux64.dll"
+if [[ -f "$default_module_path" &&
+    ! -f "$artifacts/tested-default-module.dll" ]]; then
+    cp "$default_module_path" "$artifacts/tested-default-module.dll"
+fi
 
 module_failure="$server/data/rsgdll_e2e/module_load_failure.txt"
 if [[ -f "$module_failure" ]]; then
     cp "$module_failure" "$artifacts/module-load-failure.txt"
+fi
+native_crash_sentinel="$server/data/rsgdll_e2e/native_crash_reached.txt"
+if [[ -f "$native_crash_sentinel" ]]; then
+    cp "$native_crash_sentinel" "$artifacts/native-crash-reached.txt"
 fi
 clean_exit="$server/data/gluatest_clean_exit.txt"
 failures="$server/data/gluatest_failures.json"

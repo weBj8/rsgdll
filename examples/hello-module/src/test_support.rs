@@ -16,6 +16,8 @@ pub enum Value {
         callback: LuaFunction,
         upvalues: Vec<Value>,
     },
+    Global,
+    Registry,
 }
 
 impl PartialEq for Value {
@@ -39,6 +41,8 @@ impl PartialEq for Value {
                 std::ptr::fn_addr_eq(*left_callback, *right_callback)
                     && left_upvalues == right_upvalues
             }
+            (Self::Global, Self::Global) => true,
+            (Self::Registry, Self::Registry) => true,
             _ => false,
         }
     }
@@ -51,6 +55,9 @@ struct TestState {
     stack: Vec<Value>,
     upvalues: Vec<Value>,
     error: Option<String>,
+    globals: HashMap<Vec<u8>, Value>,
+    registry: HashMap<Vec<u8>, Value>,
+    executor: Option<LuaFunction>,
 }
 
 #[repr(C)]
@@ -63,7 +70,6 @@ pub struct Fixture {
     state: NonNull<TestState>,
     lua_base: NonNull<TestLuaBase>,
     vtable: NonNull<[Slot; 55]>,
-    functions: HashMap<Vec<u8>, Value>,
 }
 
 impl Fixture {
@@ -79,17 +85,31 @@ impl Fixture {
             stack: Vec::new(),
             upvalues: Vec::new(),
             error: None,
+            globals: HashMap::new(),
+            registry: HashMap::new(),
+            executor: None,
         })));
         Self {
             state,
             lua_base,
             vtable,
-            functions: HashMap::new(),
         }
     }
 
     pub fn state(&mut self) -> *mut c_void {
         self.state.as_ptr().cast()
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        // SAFETY: fixture owns this live state for its full lifetime.
+        unsafe { self.state.as_ref() }.error.as_deref()
+    }
+
+    pub fn has_module_global(&self) -> bool {
+        // SAFETY: fixture owns this live state for its full lifetime.
+        unsafe { self.state.as_ref() }
+            .globals
+            .contains_key(b"rsgdll_example".as_slice())
     }
 
     pub fn call(
@@ -99,11 +119,10 @@ impl Fixture {
     ) -> (c_int, Vec<Value>, Option<String>) {
         // SAFETY: fixture exclusively owns live state.
         let state = unsafe { self.state.as_mut() };
-        if let Some(Value::Table(table)) = state.stack.first() {
-            self.functions = table.clone();
-        }
-        let function = self
-            .functions
+        let Some(Value::Table(functions)) = state.globals.get(b"rsgdll_example".as_slice()) else {
+            panic!("rsgdll_example global table");
+        };
+        let function = functions
             .get(name.as_bytes())
             .cloned()
             .unwrap_or_else(|| panic!("registered Lua function `{name}`"));
@@ -187,11 +206,40 @@ unsafe extern "C" fn raw_set(lua_base: *mut c_void, index: c_int) {
     let table = stack_offset(state, index);
     let assigned = state.stack.pop();
     let key = state.stack.pop();
-    if let (Some(table), Some(Value::String(key)), Some(assigned)) = (table, key, assigned)
-        && let Some(Value::Table(values)) = state.stack.get_mut(table)
-    {
-        values.insert(key, assigned);
+    if let (Some(table), Some(Value::String(key)), Some(assigned)) = (table, key, assigned) {
+        match state.stack.get_mut(table) {
+            Some(Value::Table(values)) => {
+                values.insert(key, assigned);
+            }
+            Some(Value::Global) => {
+                state.globals.insert(key, assigned);
+            }
+            Some(Value::Registry) => {
+                if assigned == Value::Nil {
+                    state.registry.remove(&key);
+                } else {
+                    state.registry.insert(key, assigned);
+                }
+            }
+            _ => {}
+        }
     }
+}
+
+unsafe extern "C" fn raw_get(lua_base: *mut c_void, index: c_int) {
+    // SAFETY: forwarded from matching fake vtable.
+    let state = unsafe { state(lua_base) };
+    let table = stack_offset(state, index);
+    let key = state.stack.pop();
+    let value = match (table.and_then(|index| state.stack.get(index)), key) {
+        (Some(Value::Table(values)), Some(Value::String(key))) => values.get(&key),
+        (Some(Value::Global), Some(Value::String(key))) => state.globals.get(&key),
+        (Some(Value::Registry), Some(Value::String(key))) => state.registry.get(&key),
+        _ => None,
+    }
+    .cloned()
+    .unwrap_or(Value::Nil);
+    state.stack.push(value);
 }
 
 unsafe extern "C" fn throw_error(lua_base: *mut c_void, message: *const c_char) {
@@ -267,6 +315,72 @@ unsafe extern "C" fn push_closure(
     state.stack.push(Value::Function { callback, upvalues });
 }
 
+unsafe extern "C" fn reference_create(lua_base: *mut c_void) -> c_int {
+    // SAFETY: forwarded from matching fake vtable.
+    let state = unsafe { state(lua_base) };
+    let Some(Value::Function { callback, .. }) = state.stack.pop() else {
+        return -1;
+    };
+    state.executor = Some(callback);
+    1
+}
+
+unsafe extern "C" fn reference_free(lua_base: *mut c_void, _: c_int) {
+    // SAFETY: forwarded from matching fake vtable.
+    unsafe { state(lua_base) }.executor = None;
+}
+
+unsafe extern "C" fn reference_push(lua_base: *mut c_void, _: c_int) {
+    // SAFETY: forwarded from matching fake vtable.
+    let state = unsafe { state(lua_base) };
+    if let Some(callback) = state.executor {
+        state.stack.push(Value::Function {
+            callback,
+            upvalues: Vec::new(),
+        });
+    }
+}
+
+unsafe extern "C" fn pcall(
+    lua_base: *mut c_void,
+    argument_count: c_int,
+    result_count: c_int,
+    _: c_int,
+) -> c_int {
+    // SAFETY: forwarded from matching fake vtable.
+    let state = unsafe { state(lua_base) };
+    let function_offset = state.stack.len() - argument_count as usize - 1;
+    let Value::Function { callback, upvalues } = state.stack.remove(function_offset) else {
+        return 1;
+    };
+    let arguments = state.stack.split_off(function_offset);
+    let outer_stack = std::mem::replace(&mut state.stack, arguments);
+    let outer_upvalues = std::mem::replace(&mut state.upvalues, upvalues);
+    // SAFETY: callback receives this fixture's live state.
+    let returned = unsafe { callback((state as *mut TestState).cast()) };
+    let returned = usize::try_from(returned).unwrap_or_default();
+    let first_result = state.stack.len().saturating_sub(returned);
+    let mut values = state.stack.split_off(first_result);
+    state.stack = outer_stack;
+    state.upvalues = outer_upvalues;
+    if result_count >= 0 {
+        values.resize(result_count as usize, Value::Nil);
+        values.truncate(result_count as usize);
+    }
+    state.stack.extend(values);
+    0
+}
+
+unsafe extern "C" fn push_special(lua_base: *mut c_void, index: c_int) {
+    // SAFETY: forwarded from matching fake vtable.
+    let state = unsafe { state(lua_base) };
+    match index {
+        0 => state.stack.push(Value::Global),
+        2 => state.stack.push(Value::Registry),
+        _ => {}
+    }
+}
+
 unsafe extern "C" fn get_type(lua_base: *mut c_void, index: c_int) -> c_int {
     // SAFETY: forwarded from matching fake vtable.
     match value(unsafe { state(lua_base) }, index) {
@@ -277,6 +391,7 @@ unsafe extern "C" fn get_type(lua_base: *mut c_void, index: c_int) -> c_int {
         Some(Value::String(_)) => 4,
         Some(Value::Table(_)) => 5,
         Some(Value::Function { .. }) => 6,
+        Some(Value::Global | Value::Registry) => 5,
     }
 }
 
@@ -294,7 +409,9 @@ fn test_vtable() -> [Slot; 55] {
     slots[0] = slot(top as *const ());
     slots[2] = slot(pop as *const ());
     slots[6] = slot(create_table as *const ());
+    slots[11] = slot(pcall as *const ());
     slots[18] = slot(throw_error as *const ());
+    slots[21] = slot(raw_get as *const ());
     slots[22] = slot(raw_set as *const ());
     slots[23] = slot(get_string as *const ());
     slots[24] = slot(get_number as *const ());
@@ -304,6 +421,10 @@ fn test_vtable() -> [Slot; 55] {
     slots[30] = slot(push_number as *const ());
     slots[31] = slot(push_bool as *const ());
     slots[33] = slot(push_closure as *const ());
+    slots[35] = slot(reference_create as *const ());
+    slots[36] = slot(reference_free as *const ());
+    slots[37] = slot(reference_push as *const ());
+    slots[38] = slot(push_special as *const ());
     slots[40] = slot(get_type as *const ());
     slots[50] = slot(set_state as *const ());
     slots

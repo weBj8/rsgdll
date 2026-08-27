@@ -34,12 +34,20 @@ impl Detour {
     /// The caller must guarantee that:
     ///
     /// - `target` is readable and writable for `PATCH_LEN` bytes;
-    /// - no thread executes or mutates those bytes until this value is dropped;
-    /// - the target allocation remains valid and writable until drop;
+    /// - no thread executes or mutates those bytes during this call;
+    /// - the target allocation remains valid, executable, and writable until
+    ///   restoration completes;
     /// - replacing exactly `PATCH_LEN` entry bytes is valid for the target.
+    /// - `replacement` has the target's exact ABI, remains executable until
+    ///   restoration completes, and never unwinds across that ABI;
+    /// - before this value is dropped, every thread is again prevented from
+    ///   executing or mutating the target until restoration completes;
+    /// - unwinding cannot drop this value while target execution is allowed.
     ///
-    /// This primitive does not make executable pages writable and does not
-    /// provide a trampoline for calling the replaced function.
+    /// Target execution may resume after this call and must stop again before
+    /// drop. This primitive neither synchronizes threads nor changes page
+    /// protection, and it does not provide a trampoline for calling the
+    /// replaced function.
     pub unsafe fn install(target: NonNull<u8>, replacement: NonNull<c_void>) -> Self {
         let mut original = [0; PATCH_LEN];
         // SAFETY: the caller guarantees `target` is readable for PATCH_LEN
@@ -63,8 +71,8 @@ impl Detour {
 
 impl Drop for Detour {
     fn drop(&mut self) {
-        // SAFETY: `install` requires the target to remain exclusively writable
-        // for this value's entire lifetime.
+        // SAFETY: `install` requires the caller to restore exclusive access
+        // before drop and retain it until these original bytes are restored.
         unsafe {
             ptr::copy_nonoverlapping(self.original.as_ptr(), self.target.as_ptr(), PATCH_LEN);
         }

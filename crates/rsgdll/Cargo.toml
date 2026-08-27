@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Framework for Garry's Mod binary Lua modules"
+license.workspace = true
 readme = "../../README.md"
 
 [features]

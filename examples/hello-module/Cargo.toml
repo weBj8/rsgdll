@@ -8,6 +8,4 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-rsgdll = { path = "../../crates/rsgdll" }
-
-[workspace]
+rsgdll = { version = "0.1.0", path = "../../crates/rsgdll" }

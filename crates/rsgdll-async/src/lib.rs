@@ -20,28 +20,21 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::task::{Context, Poll, Waker};
 
-    use rsgdll_runtime::{MainThread, completion_queue};
+    use rsgdll_runtime::completion_queue;
 
     use super::complete;
 
     #[test]
     fn ready_future_forwards_owned_output_to_completion_queue() {
         // Given: one ready Send future and an empty completion queue.
-        let (sender, mut queue) = completion_queue(NonZeroUsize::MIN);
+        let (sender, queue) = completion_queue(NonZeroUsize::MIN);
+        drop(queue);
         let mut completion = Box::pin(complete(sender, future::ready(42_u64)));
         let mut context = Context::from_waker(Waker::noop());
 
-        // When: any executor polls the adapter to completion.
-        assert!(matches!(
-            completion.as_mut().poll(&mut context),
-            Poll::Ready(Ok(()))
-        ));
-
-        // Then: only the owned output reaches main-thread completion.
-        // SAFETY: test runs generated-callback-equivalent code on this thread.
-        let mut main_thread = unsafe { MainThread::__from_callback() };
-        let mut value = None;
-        queue.drain(&mut main_thread, |_, completed| value = Some(completed));
-        assert_eq!(value, Some(42));
+        let Poll::Ready(Err(error)) = completion.as_mut().poll(&mut context) else {
+            panic!("ready future must observe the closed completion queue");
+        };
+        assert_eq!(error.0, 42);
     }
 }

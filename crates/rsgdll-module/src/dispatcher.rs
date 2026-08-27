@@ -3,13 +3,13 @@ use std::ffi::c_char;
 use std::fmt;
 use std::sync::RwLock;
 
-use rsgdll_bridge::{DispatchResult, ReturnBuffer};
+use rsgdll_bridge::{
+    DispatchResult, ReturnBuffer, STATUS_INTERNAL_ERROR, STATUS_RUST_ERROR, STATUS_RUST_PANIC,
+};
 use rsgdll_lua::{FromLua, Lua, StackFrame};
 
 use crate::{ErrorReport, PanicReport, ReturnWriter};
 
-const ERROR_STATUS: i32 = 1;
-const PANIC_STATUS: i32 = 2;
 const DISPATCHER_CONTEXT: &str = "rsgdll dispatcher";
 
 pub type BoxError = Box<dyn Error + 'static>;
@@ -72,7 +72,9 @@ pub fn register_callback(
 }
 
 pub fn install_dispatcher() {
-    rsgdll_bridge::set_dispatcher(rust_dispatcher);
+    // SAFETY: `rust_dispatcher` catches panics, borrows every pointer only for
+    // this call, and constructs results from validated stack/staging counts.
+    unsafe { rsgdll_bridge::set_dispatcher(rust_dispatcher) };
 }
 
 #[must_use]
@@ -81,8 +83,9 @@ pub fn trampoline() -> rsgdll_lua::LuaCFunction {
 }
 
 enum Outcome {
-    Success { return_count: i32, on_stack: bool },
-    Error(ErrorReport),
+    Success(DispatchResult),
+    ApplicationError(ErrorReport),
+    InternalError(ErrorReport),
     Panic(PanicReport),
 }
 
@@ -98,14 +101,14 @@ unsafe extern "C" fn rust_dispatcher(
             dispatch_and_write(state, error_buffer, error_capacity, return_buffer)
         }) {
             Ok(result) => result,
-            Err(_) => {
-                let length = write_bytes(
+            Err(_) => DispatchResult::failure(
+                STATUS_RUST_PANIC,
+                write_bytes(
                     error_buffer,
                     error_capacity,
                     b"panic while producing rsgdll panic report",
-                );
-                DispatchResult::failure(PANIC_STATUS, length)
-            }
+                ),
+            ),
         }
     }
     #[cfg(not(panic = "unwind"))]
@@ -120,25 +123,17 @@ fn dispatch_and_write(
     error_capacity: u32,
     return_buffer: *mut ReturnBuffer,
 ) -> DispatchResult {
+    let error_result = |report: ErrorReport, status| {
+        DispatchResult::failure(status, write_report(error_buffer, error_capacity, &report))
+    };
     match dispatch(state, return_buffer) {
-        Outcome::Success {
-            return_count,
-            on_stack: true,
-        } => DispatchResult::stack_success(return_count),
-        Outcome::Success {
-            return_count,
-            on_stack: false,
-        } => DispatchResult::success(return_count),
-        Outcome::Error(report) => {
-            let length = write_report(error_buffer, error_capacity, &report);
-            drop(report);
-            DispatchResult::failure(ERROR_STATUS, length)
-        }
-        Outcome::Panic(report) => {
-            let length = write_report(error_buffer, error_capacity, &report);
-            drop(report);
-            DispatchResult::failure(PANIC_STATUS, length)
-        }
+        Outcome::Success(result) => result,
+        Outcome::ApplicationError(report) => error_result(report, STATUS_RUST_ERROR),
+        Outcome::InternalError(report) => error_result(report, STATUS_INTERNAL_ERROR),
+        Outcome::Panic(report) => DispatchResult::failure(
+            STATUS_RUST_PANIC,
+            write_report(error_buffer, error_capacity, &report),
+        ),
     }
 }
 
@@ -147,27 +142,27 @@ fn dispatch(
     return_buffer: *mut ReturnBuffer,
 ) -> Outcome {
     let Some(return_buffer) = (unsafe { return_buffer.as_mut() }) else {
-        return Outcome::Error(ErrorReport::message(
+        return Outcome::InternalError(ErrorReport::message(
             DISPATCHER_CONTEXT,
             "C++ bridge supplied no return buffer",
         ));
     };
     // SAFETY: C++ trampoline passes its live callback state and no throwing Lua
     // operation occurs while constructing the checked handle.
-    let mut lua = match unsafe { Lua::from_raw(state) } {
+    let mut lua = match unsafe { rsgdll_lua::__private::from_raw(state) } {
         Ok(lua) => lua,
         Err(error) => {
-            return Outcome::Error(ErrorReport::capture(DISPATCHER_CONTEXT, &error));
+            return Outcome::InternalError(ErrorReport::capture(DISPATCHER_CONTEXT, &error));
         }
     };
     let id = match callback_id(&lua) {
         Ok(id) => id,
-        Err(report) => return Outcome::Error(report),
+        Err(report) => return Outcome::InternalError(report),
     };
     let entry = match callback(id) {
         Some(entry) => entry,
         None => {
-            return Outcome::Error(ErrorReport::message(
+            return Outcome::InternalError(ErrorReport::message(
                 DISPATCHER_CONTEXT,
                 format!("unknown callback id {}", id.get()),
             ));
@@ -192,23 +187,24 @@ fn dispatch(
             let expected = stack_count.unwrap_or(0);
             match frame.commit(expected) {
                 Ok(_) => match i32::try_from(stack_count.unwrap_or_else(|| returns.count())) {
-                    Ok(return_count) => Outcome::Success {
-                        return_count,
-                        on_stack: stack_count.is_some(),
-                    },
-                    Err(_) => Outcome::Error(ErrorReport::message(
+                    Ok(return_count) => Outcome::Success(if stack_count.is_some() {
+                        DispatchResult::stack_success(return_count)
+                    } else {
+                        DispatchResult::success(return_count)
+                    }),
+                    Err(_) => Outcome::InternalError(ErrorReport::message(
                         entry.context,
                         "Lua return count exceeds the ABI integer limit",
                     )),
                 },
-                Err(error) => Outcome::Error(ErrorReport::capture(entry.context, &error)),
+                Err(error) => Outcome::InternalError(ErrorReport::capture(entry.context, &error)),
             }
         }
         Ok(Err(report)) => match frame.finish() {
-            Ok(()) => Outcome::Error(report),
-            Err(error) => {
-                Outcome::Error(report.append(format_args!("stack restoration failed: {error}")))
-            }
+            Ok(()) => Outcome::ApplicationError(report),
+            Err(error) => Outcome::InternalError(
+                report.append(format_args!("stack restoration failed: {error}")),
+            ),
         },
         Err(payload) => {
             let report = PanicReport::capture(entry.context, payload);
@@ -244,21 +240,77 @@ fn callback(id: CallbackId) -> Option<Entry> {
     callbacks.get(index).copied()
 }
 
-fn write_report(buffer: *mut c_char, capacity: u32, report: &impl fmt::Display) -> u32 {
-    write_bytes(buffer, capacity, report.to_string().as_bytes())
+pub(crate) fn write_report(buffer: *mut c_char, capacity: u32, report: &impl fmt::Display) -> u32 {
+    let message = report.to_string().replace('\0', "\\0");
+    write_bytes(buffer, capacity, message.as_bytes())
 }
 
-fn write_bytes(buffer: *mut c_char, capacity: u32, message: &[u8]) -> u32 {
+pub(crate) fn write_bytes(buffer: *mut c_char, capacity: u32, message: &[u8]) -> u32 {
+    const TRUNCATION_MARKER: &[u8] = b"\n...[truncated]";
+
     let available = capacity.saturating_sub(1) as usize;
-    let length = message.len().min(available);
+    let (message_length, suffix) =
+        if message.len() > available && available >= TRUNCATION_MARKER.len() {
+            (available - TRUNCATION_MARKER.len(), TRUNCATION_MARKER)
+        } else {
+            (message.len().min(available), &[][..])
+        };
+    let length = message_length + suffix.len();
     if length == 0 || buffer.is_null() {
         return 0;
     }
     // SAFETY: bridge provides writable storage for `capacity` bytes and
     // `length` is strictly smaller than that capacity.
     unsafe {
-        std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.cast(), length);
+        for (index, byte) in message[..message_length].iter().copied().enumerate() {
+            buffer
+                .cast::<u8>()
+                .add(index)
+                .write(if byte == 0 { b'?' } else { byte });
+        }
+        std::ptr::copy_nonoverlapping(
+            suffix.as_ptr(),
+            buffer.cast::<u8>().add(message_length),
+            suffix.len(),
+        );
         buffer.add(length).write(0);
     }
     length as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_bytes;
+
+    #[test]
+    fn oversized_reports_end_with_truncation_marker() {
+        let mut buffer = [0_i8; 24];
+
+        let length = write_bytes(
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
+            b"abcdefghijklmnopqrstuvwxyz",
+        );
+
+        let bytes = buffer[..length as usize]
+            .iter()
+            .map(|byte| *byte as u8)
+            .collect::<Vec<_>>();
+        assert_eq!(bytes, b"abcdefgh\n...[truncated]");
+        assert_eq!(buffer[length as usize], 0);
+    }
+
+    #[test]
+    fn interior_nul_is_replaced_before_crossing_c_string_boundary() {
+        let mut buffer = [0_i8; 16];
+
+        let length = write_bytes(buffer.as_mut_ptr(), buffer.len() as u32, b"outer\0source");
+
+        let bytes = buffer[..length as usize]
+            .iter()
+            .map(|byte| *byte as u8)
+            .collect::<Vec<_>>();
+        assert_eq!(bytes, b"outer?source");
+        assert_eq!(buffer[length as usize], 0);
+    }
 }

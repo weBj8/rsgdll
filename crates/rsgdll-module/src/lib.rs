@@ -7,12 +7,12 @@ mod dispatcher;
 mod report;
 mod returns;
 
-pub use builder::{
-    Function, ModuleBuilder, RawRegistration, initialize_module, install_userdata_gc,
-};
+pub use builder::{Function, ModuleBuilder, initialize_module};
 pub use dispatcher::{
     BoxError, Callback, CallbackId, RegistrationError, install_dispatcher, register_callback,
     trampoline,
 };
 pub use report::{ErrorReport, PanicReport};
 pub use returns::{IntoLuaReturn, LuaStackValues, ReturnError, ReturnWriter};
+#[doc(hidden)]
+pub use rsgdll_bridge::{AbiLayout, ModuleRegistration as RawRegistration};

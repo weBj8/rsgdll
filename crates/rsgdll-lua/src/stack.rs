@@ -2,7 +2,7 @@ use rsgdll_platform::__private::RawLuaBase;
 
 use crate::{
     FromLua, IntoLua, Lua, LuaCFunction, LuaError, LuaFunction, LuaResult, LuaTable, LuaType,
-    RegistryReference, UserDataType,
+    RegistryReference, UserDataType, protected,
 };
 
 /// Checked access to one borrowed Lua stack.
@@ -72,83 +72,43 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
     }
 
     /// Pushes one Rust value.
-    ///
-    /// # Safety
-    ///
-    /// Caller must uphold [`IntoLua::into_lua`]'s no-longjmp contract.
-    pub unsafe fn push<T: IntoLua>(&mut self, value: T) -> LuaResult<()> {
-        // SAFETY: caller accepted the conversion's documented foreign-call
-        // obligations.
-        unsafe { value.into_lua(self.lua) }
+    pub fn push<T: IntoLua>(&mut self, value: T) -> LuaResult<()> {
+        value.into_lua(self.lua)
     }
 
     /// Pushes a copy of an existing stack value.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure stack growth cannot raise a Lua error or longjmp.
-    pub unsafe fn push_value(&mut self, index: i32) {
-        // SAFETY: caller guarantees the foreign push cannot longjmp; any index
-        // is accepted by the pinned Lua stack API.
-        unsafe { RawLuaBase::push(self.lua.raw().as_ptr(), index) };
+    pub(crate) fn push_value(&mut self, index: i32) -> LuaResult<()> {
+        protected::push(self.lua.context(), index)
     }
 
     /// Creates and pushes an empty table.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure allocation and stack growth cannot raise a Lua error
-    /// or longjmp.
-    pub unsafe fn create_table(&mut self) {
-        // SAFETY: caller guarantees the allocating foreign call cannot
-        // longjmp across this Rust frame.
-        unsafe { RawLuaBase::create_table(self.lua.raw().as_ptr()) };
+    pub fn create_table(&mut self) -> LuaResult<()> {
+        protected::create_table(self.lua.context())
     }
 
     /// Creates an empty registry-owned table.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure table allocation, stack growth, and registry
-    /// insertion cannot raise a Lua error or longjmp.
-    pub unsafe fn new_table(&mut self) -> LuaResult<LuaTable<'lua>> {
-        // SAFETY: caller accepts table allocation's no-longjmp obligation.
-        unsafe { self.create_table() };
-        // SAFETY: the just-created table is live at stack top and caller
-        // accepts registry insertion's no-longjmp obligation.
-        let reference = unsafe { self.create_reference(-1)? };
+    pub fn new_table(&mut self) -> LuaResult<LuaTable<'lua>> {
+        self.create_table()?;
+        let reference = self.create_reference(-1)?;
         self.pop(1)?;
         Ok(LuaTable::new(reference))
     }
 
     /// Creates a registry reference to one existing stack value.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure stack growth and registry insertion cannot raise a
-    /// Lua error or longjmp.
-    pub unsafe fn create_reference(&mut self, index: i32) -> LuaResult<RegistryReference<'lua>> {
+    pub fn create_reference(&mut self, index: i32) -> LuaResult<RegistryReference<'lua>> {
         if self.value_type(index) == LuaType::NONE {
             return Err(LuaError::TypeMismatch {
                 expected: LuaType::NIL,
                 actual: LuaType::NONE,
             });
         }
-        // SAFETY: caller guarantees stack growth cannot longjmp.
-        unsafe { self.push_value(index) };
-        // SAFETY: copied stack value is live; caller guarantees registry
-        // insertion cannot longjmp.
-        let id = unsafe { RawLuaBase::reference_create(self.lua.raw().as_ptr()) };
-        Ok(RegistryReference::new(self.lua.raw(), id))
+        self.push_value(index)?;
+        let id = protected::reference_create(self.lua.context())?;
+        Ok(RegistryReference::new(self.lua.state(), self.lua.raw(), id))
     }
 
     /// Captures one function in the Lua registry.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure stack growth and registry insertion cannot raise a
-    /// Lua error or longjmp.
-    pub unsafe fn function(&mut self, index: i32) -> LuaResult<LuaFunction<'lua>> {
+    pub fn function(&mut self, index: i32) -> LuaResult<LuaFunction<'lua>> {
         let actual = self.value_type(index);
         if actual != LuaType::FUNCTION {
             return Err(LuaError::TypeMismatch {
@@ -156,70 +116,41 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
                 actual,
             });
         }
-        // SAFETY: type was checked and caller accepts registry operations.
-        let reference = unsafe { self.create_reference(index)? };
+        let reference = self.create_reference(index)?;
         Ok(LuaFunction::new(reference))
     }
 
     /// Registers or retrieves one named Rust userdata type.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure metatable creation cannot raise a Lua error or
-    /// longjmp.
-    pub unsafe fn userdata_type<T: 'static>(
-        &mut self,
-        name: &str,
-    ) -> LuaResult<UserDataType<'lua, T>> {
-        // SAFETY: caller accepts metatable creation's no-longjmp obligation.
-        unsafe { UserDataType::register(self, name) }
+    pub fn userdata_type<T: 'static>(&mut self, name: &str) -> LuaResult<UserDataType<'lua, T>> {
+        UserDataType::register(self, name)
     }
 
     /// Performs raw table lookup using the key at stack top.
     ///
-    /// # Safety
-    ///
-    /// Caller must ensure the foreign operation cannot raise a Lua error or
-    /// longjmp. This method validates table type and frame-local key ownership.
-    pub unsafe fn raw_get(&mut self, table_index: i32) -> LuaResult<()> {
+    /// This method validates table type and frame-local key ownership.
+    pub fn raw_get(&mut self, table_index: i32) -> LuaResult<()> {
         self.expect_table(table_index)?;
         self.require_frame_values(1)?;
-        // SAFETY: table type and key availability were checked in Rust; caller
-        // guarantees remaining foreign failure paths cannot longjmp.
-        unsafe { RawLuaBase::raw_get(self.lua.raw().as_ptr(), table_index) };
-        Ok(())
+        protected::raw_get(self.lua.context(), table_index)
     }
 
     /// Performs raw table assignment using key and value at stack top.
     ///
-    /// # Safety
-    ///
-    /// Caller must ensure the foreign operation cannot raise a Lua error or
-    /// longjmp. This method validates table type and frame-local operands.
-    pub unsafe fn raw_set(&mut self, table_index: i32) -> LuaResult<()> {
+    /// This method validates table type and frame-local operands.
+    pub fn raw_set(&mut self, table_index: i32) -> LuaResult<()> {
         self.expect_table(table_index)?;
         self.require_frame_values(2)?;
-        // SAFETY: table type and both operands were checked in Rust; caller
-        // guarantees remaining foreign failure paths cannot longjmp.
-        unsafe { RawLuaBase::raw_set(self.lua.raw().as_ptr(), table_index) };
-        Ok(())
+        protected::raw_set(self.lua.context(), table_index)
     }
 
     /// Advances Lua table iteration using the key at stack top.
     ///
     /// Returns `true` after replacing the key with the next key/value pair, or
     /// `false` after consuming the final key.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure the foreign operation cannot raise a Lua error or
-    /// longjmp.
-    pub unsafe fn next(&mut self, table_index: i32) -> LuaResult<bool> {
+    pub fn next(&mut self, table_index: i32) -> LuaResult<bool> {
         self.expect_table(table_index)?;
         self.require_frame_values(1)?;
-        // SAFETY: table/key presence was checked and caller accepts foreign
-        // iteration's no-longjmp obligation.
-        Ok(unsafe { RawLuaBase::next(self.lua.raw().as_ptr(), table_index) } != 0)
+        protected::next(self.lua.context(), table_index)
     }
 
     #[cfg(feature = "serde")]
@@ -236,37 +167,15 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
             .ok_or(LuaError::CountOverflow)
     }
 
-    /// Pushes a C function with no closure upvalues.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure closure allocation and stack growth cannot raise a
-    /// Lua error or longjmp.
-    pub unsafe fn push_c_function(&mut self, function: LuaCFunction) -> LuaResult<()> {
-        // SAFETY: caller accepted the no-longjmp contract; zero consumes no
-        // frame values.
-        unsafe { self.push_c_closure(function, 0) }
-    }
-
     /// Consumes frame-owned values and pushes a C closure.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure closure allocation and stack growth cannot raise a
-    /// Lua error or longjmp.
-    pub unsafe fn push_c_closure(
+    pub(crate) fn push_c_closure(
         &mut self,
         function: LuaCFunction,
         upvalue_count: usize,
     ) -> LuaResult<()> {
         self.require_frame_values(upvalue_count)?;
         let upvalue_count = i32::try_from(upvalue_count).map_err(|_| LuaError::CountOverflow)?;
-        // SAFETY: upvalues are frame-owned and count fits the ABI; caller
-        // guarantees closure allocation cannot longjmp.
-        unsafe {
-            RawLuaBase::push_c_closure(self.lua.raw().as_ptr(), function, upvalue_count);
-        }
-        Ok(())
+        protected::push_c_closure(self.lua.context(), function, upvalue_count)
     }
 
     /// Pops frame-owned values without crossing the frame baseline.
@@ -281,11 +190,28 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
             });
         }
         if count != 0 {
-            // SAFETY: `count` is nonnegative and bounded by values above the
-            // frame baseline; pinned `Pop` cannot remove caller-owned values.
-            unsafe { RawLuaBase::pop(self.lua.raw().as_ptr(), count) };
+            protected::pop(self.lua.context(), count)?;
         }
         Ok(())
+    }
+
+    pub(crate) fn rollback_on_error<T>(
+        &mut self,
+        entry_top: i32,
+        result: LuaResult<T>,
+    ) -> LuaResult<T> {
+        if result.is_ok() {
+            return result;
+        }
+        let current = self.top();
+        let extra = current
+            .checked_sub(entry_top)
+            .ok_or(LuaError::StackUnderflow {
+                baseline: entry_top,
+                requested_top: current,
+            })?;
+        self.pop(extra as usize)?;
+        result
     }
 
     /// Checks and restores the frame before consuming the guard.
@@ -322,9 +248,7 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
         }
         let extra = current - self.baseline;
         if extra != 0 {
-            // SAFETY: `extra` is exactly the number of values above the saved
-            // baseline, so pinned `Pop` restores that baseline.
-            unsafe { RawLuaBase::pop(self.lua.raw().as_ptr(), extra) };
+            protected::pop(self.lua.context(), extra)?;
         }
         Ok(())
     }
@@ -359,6 +283,14 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
 
     pub(crate) const fn raw(&self) -> std::ptr::NonNull<RawLuaBase> {
         self.lua.raw()
+    }
+
+    pub(crate) const fn state(&self) -> std::ptr::NonNull<rsgdll_platform::__private::RawLuaState> {
+        self.lua.state()
+    }
+
+    pub(crate) const fn context(&self) -> protected::Context {
+        self.lua.context()
     }
 
     #[doc(hidden)]

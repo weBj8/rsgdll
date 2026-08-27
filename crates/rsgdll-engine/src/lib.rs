@@ -18,7 +18,6 @@ pub struct Engine<'main> {
     library: EngineLibrary,
     _main_thread: PhantomData<&'main mut MainThread>,
 }
-
 impl<'main> Engine<'main> {
     /// Attaches to the engine already loaded by the current GMod server.
     pub fn attach(_main_thread: &'main mut MainThread) -> Result<Self, EngineError> {

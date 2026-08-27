@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Internal module lifecycle and dispatch for rsgdll"
+license.workspace = true
 
 [features]
 default = []
@@ -16,3 +17,4 @@ rsgdll-platform.workspace = true
 
 [dev-dependencies]
 rsgdll-abi.workspace = true
+rsgdll-bridge = { workspace = true, features = ["test-support"] }

@@ -5,12 +5,7 @@ pub trait IntoLuaMulti {
     fn count(&self) -> usize;
 
     /// Pushes every argument in call order.
-    ///
-    /// # Safety
-    ///
-    /// Caller must uphold every contained [`IntoLua`] value's no-longjmp
-    /// contract.
-    unsafe fn push(self, frame: &mut StackFrame<'_, '_>) -> LuaResult<()>;
+    fn push(self, frame: &mut StackFrame<'_, '_>) -> LuaResult<()>;
 }
 
 /// Reads a fixed number of protected Lua call results.
@@ -25,7 +20,7 @@ impl IntoLuaMulti for () {
         0
     }
 
-    unsafe fn push(self, _: &mut StackFrame<'_, '_>) -> LuaResult<()> {
+    fn push(self, _: &mut StackFrame<'_, '_>) -> LuaResult<()> {
         Ok(())
     }
 }
@@ -45,11 +40,10 @@ macro_rules! multi {
                 $count
             }
 
-            unsafe fn push(self, frame: &mut StackFrame<'_, '_>) -> LuaResult<()> {
+            fn push(self, frame: &mut StackFrame<'_, '_>) -> LuaResult<()> {
                 let ($($value,)+) = self;
                 $(
-                    // SAFETY: caller accepted each argument's no-longjmp contract.
-                    unsafe { frame.push($value)? };
+                    frame.push($value)?;
                 )+
                 Ok(())
             }

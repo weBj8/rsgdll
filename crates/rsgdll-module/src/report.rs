@@ -2,6 +2,8 @@ use std::any::Any;
 use std::error::Error;
 use std::fmt;
 
+const MAX_ERROR_SOURCES: usize = 64;
+
 /// Owned diagnostic for an ordinary Rust callback failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorReport {
@@ -16,9 +18,20 @@ impl ErrorReport {
     pub(crate) fn capture(context: &'static str, error: &(dyn Error + 'static)) -> Self {
         let message = error.to_string();
         let mut sources = Vec::new();
+        let mut seen = vec![error];
         let mut source = error.source();
-        while let Some(error) = source {
-            sources.push(error.to_string());
+        for _ in 0..MAX_ERROR_SOURCES {
+            let Some(error) = source else {
+                break;
+            };
+            if seen.iter().any(|seen| std::ptr::eq(*seen, error)) {
+                break;
+            }
+            seen.push(error);
+            let source_message = error.to_string();
+            if sources.last().unwrap_or(&message) != &source_message {
+                sources.push(source_message);
+            }
             source = error.source();
         }
         Self {
@@ -74,6 +87,70 @@ impl fmt::Display for ErrorReport {
 }
 
 impl Error for ErrorReport {}
+
+#[cfg(test)]
+mod source_tests {
+    use super::ErrorReport;
+    use std::error::Error;
+    use std::fmt;
+
+    #[derive(Debug)]
+    struct Cause;
+
+    impl fmt::Display for Cause {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("failure")
+        }
+    }
+
+    impl Error for Cause {}
+
+    #[derive(Debug)]
+    struct Cyclic;
+
+    impl fmt::Display for Cyclic {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("cycle")
+        }
+    }
+
+    impl Error for Cyclic {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(self)
+        }
+    }
+
+    #[derive(Debug)]
+    struct Wrapper(Cause);
+
+    impl fmt::Display for Wrapper {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            self.0.fmt(formatter)
+        }
+    }
+
+    impl Error for Wrapper {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    #[test]
+    fn duplicate_source_text_is_emitted_once() {
+        let report = ErrorReport::capture("module.callback", &Wrapper(Cause));
+
+        assert_eq!(report.message, "failure");
+        assert!(report.sources.is_empty());
+    }
+
+    #[test]
+    fn cyclic_source_chain_is_emitted_once() {
+        let report = ErrorReport::capture("module.callback", &Cyclic);
+
+        assert_eq!(report.message, "cycle");
+        assert!(report.sources.is_empty());
+    }
+}
 
 /// Owned diagnostic for a Rust panic caught at the FFI boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]

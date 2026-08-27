@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Internal async adapters for rsgdll"
+license.workspace = true
 
 [dependencies]
 rsgdll-runtime.workspace = true

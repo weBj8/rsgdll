@@ -2,4 +2,7 @@
 .agents
 skills-lock.json
 .omo
-.sempi
+.senpi
+.codegraph
+/e2e-artifacts*/
+/e2e/module/target

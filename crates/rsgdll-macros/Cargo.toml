@@ -4,11 +4,16 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Internal proc macros for rsgdll"
+license.workspace = true
 
 [lib]
 proc-macro = true
 
 [dependencies]
+proc-macro-crate = "3"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full"] }
+
+[dev-dependencies]
+framework = { package = "rsgdll", path = "../rsgdll" }

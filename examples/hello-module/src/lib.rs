@@ -3,8 +3,33 @@ use std::fmt;
 
 use rsgdll::prelude::*;
 
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InitializationMode {
+    Normal,
+    Panic,
+    RegistrationFailure,
+}
+
+#[cfg(test)]
+thread_local! {
+    static INITIALIZATION_MODE: std::cell::Cell<InitializationMode> =
+        const { std::cell::Cell::new(InitializationMode::Normal) };
+}
+
 #[rsgdll::module]
 fn module(module: &mut ModuleBuilder) {
+    #[cfg(test)]
+    match INITIALIZATION_MODE.get() {
+        InitializationMode::Normal => {}
+        InitializationMode::Panic => panic!("intentional initializer panic"),
+        InitializationMode::RegistrationFailure => {
+            for _ in 0..300 {
+                module.function("overflow", empty);
+            }
+            return;
+        }
+    }
     module
         .function("hello", hello)
         .function("get_user", get_user)
@@ -13,6 +38,11 @@ fn module(module: &mut ModuleBuilder) {
         .function("empty", empty);
     #[cfg(test)]
     module.function("", empty);
+}
+
+#[cfg(test)]
+fn set_initialization_mode(mode: InitializationMode) {
+    INITIALIZATION_MODE.set(mode);
 }
 
 #[rsgdll::function]

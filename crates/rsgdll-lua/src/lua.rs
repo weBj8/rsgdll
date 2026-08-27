@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use rsgdll_platform::__private::{RawLuaBase, RawLuaState};
 
-use crate::{LuaError, LuaResult, LuaType, Stack};
+use crate::{LuaError, LuaResult, LuaType, Stack, protected};
 
 const GLOBAL_INDEX: i32 = -10_002;
 
@@ -13,6 +13,7 @@ const GLOBAL_INDEX: i32 = -10_002;
 /// `Lua` is neither [`Send`] nor [`Sync`]. It must be passed explicitly from
 /// the callback boundary that owns the underlying state.
 pub struct Lua<'lua> {
+    state: NonNull<RawLuaState>,
     raw: NonNull<RawLuaBase>,
     _state: PhantomData<&'lua mut RawLuaState>,
     _main_thread: PhantomData<Rc<()>>,
@@ -25,14 +26,14 @@ impl<'lua> Lua<'lua> {
     ///
     /// `state` must be null or point to a live pinned-layout Garry's Mod
     /// `lua_State` for all of `'lua`. The caller must provide exclusive
-    /// main-thread access for that lifetime and ensure no Lua longjmp or C++
-    /// exception crosses this constructor.
-    pub unsafe fn from_raw(state: *mut RawLuaState) -> LuaResult<Self> {
+    /// main-thread access for that lifetime.
+    pub(crate) unsafe fn from_raw(state: *mut RawLuaState) -> LuaResult<Self> {
         let state = NonNull::new(state).ok_or(LuaError::NullState)?;
         // SAFETY: caller guarantees a live pinned-layout state for `'lua`.
         let lua_base = unsafe { RawLuaState::lua_base(state.as_ptr()) };
         let raw = NonNull::new(lua_base).ok_or(LuaError::NullLuaBase)?;
         Ok(Self {
+            state,
             raw,
             _state: PhantomData,
             _main_thread: PhantomData,
@@ -71,5 +72,13 @@ impl<'lua> Lua<'lua> {
 
     pub(crate) const fn raw(&self) -> NonNull<RawLuaBase> {
         self.raw
+    }
+
+    pub(crate) const fn state(&self) -> NonNull<RawLuaState> {
+        self.state
+    }
+
+    pub(crate) const fn context(&self) -> protected::Context {
+        protected::Context::new(self.state, self.raw)
     }
 }

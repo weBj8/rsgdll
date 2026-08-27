@@ -22,6 +22,15 @@ jobs:
           printf 'core.%%e.%%p.%%t\n' | sudo tee /proc/sys/kernel/core_pattern
 
       - name: Run real GLuaTest server
+        env:
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts
+        run: bash e2e/run.sh
+
+      - name: Verify native crash diagnostics
+        env:
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts-crash
+          RSGDLL_E2E_CRASH_TEST: "1"
+          RSGDLL_E2E_EXPECTED_OUTCOME: SERVER_CRASH
         run: bash e2e/run.sh
 
       - name: Upload E2E diagnostics
@@ -29,6 +38,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rsgdll-e2e-linux64
-          path: e2e-artifacts/
+          path: |
+            e2e-artifacts/
+            e2e-artifacts-crash/
           if-no-files-found: warn
           retention-days: 14

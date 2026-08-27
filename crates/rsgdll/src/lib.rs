@@ -3,13 +3,56 @@
 pub use rsgdll_macros::{function, module};
 
 /// Checked Lua APIs.
-pub use rsgdll_lua as lua;
+///
+/// Raw callback types and state construction are not part of this namespace.
+///
+/// ```compile_fail
+/// use rsgdll::lua::LuaCFunction;
+/// ```
+///
+/// ```compile_fail
+/// let state = std::ptr::null_mut();
+/// let _ = unsafe { rsgdll::lua::Lua::from_raw(state) };
+/// ```
+///
+/// Bridge operation codes and statuses are not public API.
+///
+/// ```compile_fail
+/// let _ = rsgdll::lua::LuaError::ProtectedOperation { opcode: 1, status: -1 };
+/// ```
+pub mod lua {
+    pub use rsgdll_lua::{
+        FromLua, FromLuaMulti, IntoLua, IntoLuaMulti, Lua, LuaBytes, LuaError, LuaFunction,
+        LuaResult, LuaTable, LuaType, RegistryReference, Stack, StackFrame, UserDataType,
+    };
+
+    #[cfg(feature = "serde")]
+    pub use rsgdll_lua::serde;
+}
 
 /// Module lifecycle and registration APIs.
-pub use rsgdll_module as module;
+///
+/// Dispatcher and registration plumbing is available only to generated code.
+///
+/// ```compile_fail
+/// use rsgdll::module::{RawRegistration, install_dispatcher, trampoline};
+/// ```
+pub mod module {
+    pub use rsgdll_module::{
+        BoxError, Function, IntoLuaReturn, LuaStackValues, ModuleBuilder, ReturnError, ReturnWriter,
+    };
+}
 
 /// Main-thread runtime services.
-pub use rsgdll_runtime as runtime;
+///
+/// Main-thread capability construction remains framework-internal.
+///
+/// ```compile_fail
+/// let _ = unsafe { rsgdll::runtime::MainThread::__from_callback() };
+/// ```
+pub mod runtime {
+    pub use rsgdll_runtime::{CompletionQueue, CompletionSender, MainThread, completion_queue};
+}
 
 /// Executor-neutral background completion adapters.
 #[cfg(feature = "async")]
@@ -34,19 +77,56 @@ pub mod prelude {
         LuaResult, LuaTable, RegistryReference, Stack, StackFrame, UserDataType,
     };
     pub use rsgdll_module::{
-        BoxError, IntoLuaReturn, LuaStackValues, ModuleBuilder, install_userdata_gc,
+        BoxError, Function, IntoLuaReturn, LuaStackValues, ModuleBuilder, ReturnError, ReturnWriter,
     };
     pub use rsgdll_runtime::{CompletionQueue, CompletionSender, MainThread, completion_queue};
 }
 
-/// Low-level escape hatches reserved for the `raw` feature.
+/// Reserved low-level namespace.
+///
+/// Version 0.1 intentionally exposes no raw ABI items. Future escape hatches
+/// may be added here without making internal crates normal dependencies.
 #[cfg(feature = "raw")]
 pub mod raw {}
 
 /// Framework plumbing used by generated code.
+///
+/// ```compile_fail
+/// use rsgdll::__private::lua::LuaCFunction;
+/// ```
+///
+/// ```compile_fail
+/// use rsgdll::lua::StackFrame;
+///
+/// fn mint(frame: &StackFrame<'_, '_>) {
+///     let _ = rsgdll::__private::runtime::main_thread_from_callback(frame);
+/// }
+/// ```
 #[doc(hidden)]
 pub mod __private {
-    pub use rsgdll_lua as lua;
-    pub use rsgdll_module as module;
-    pub use rsgdll_runtime as runtime;
+    pub mod lua {
+        pub use rsgdll_lua::StackFrame;
+    }
+
+    pub mod module {
+        pub use rsgdll_module::{
+            AbiLayout, BoxError, Function, RawRegistration, ReturnWriter, initialize_module,
+        };
+    }
+
+    pub mod runtime {
+        use rsgdll_lua::StackFrame;
+        pub use rsgdll_runtime::MainThread;
+
+        /// # Safety
+        ///
+        /// Caller must be generated callback glue holding `frame` inside the
+        /// framework's GMod main-thread dispatcher.
+        #[must_use]
+        pub unsafe fn main_thread_from_callback(_frame: &StackFrame<'_, '_>) -> MainThread {
+            // SAFETY: a checked callback frame exists only while the framework
+            // dispatcher owns the GMod main thread.
+            unsafe { rsgdll_runtime::__private::main_thread_from_callback() }
+        }
+    }
 }

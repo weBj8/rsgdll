@@ -42,6 +42,33 @@ Every raw call requires the caller to prevent Lua longjmp, C++ exceptions, or
 Rust panics from crossing its Rust frame. Allocating and conversion operations
 remain unsafe even when their names are not explicitly error-raising.
 
+The checked `rsgdll-lua` layer does not invoke potentially throwing raw
+operations directly. The C++ bridge prepares an executor closure before
+entering Rust, then runs each POD-described mutation through
+`ILuaBase::PCall`. Only exact-type, non-coercing reads remain direct.
+
+## Foreign runtime contract
+
+The supported foreign implementation is Garry's Mod's pinned default
+`ILuaBase` runtime. Exact-type reads used directly by checked Rust code must
+return normally; a replacement `ILuaBase` implementation that throws a C++
+exception is unsupported. The bridge is compiled with C++ exceptions disabled,
+and no C++ exception may cross its C ABI or a Rust frame.
+
+Lua errors remain supported only through the documented `longjmp`/`PCall`
+path. Potentially throwing mutations execute inside the prepared C++ executor,
+while the direct reads are limited to the empirically verified non-throwing
+operations described above.
+
+## Module lifecycle
+
+Version 0.1 does not support dynamically unloading or reloading a compiled
+module. The module must remain loaded until its Lua state and process are being
+torn down, after the host can no longer invoke exported closures or userdata
+finalizers. `gmod13_close` therefore performs no Rust cleanup: unloading the
+shared object while Lua retains native callbacks would leave stale function
+pointers and cannot be made safe by allocation cleanup alone.
+
 `Types.h` supplies type tags through `SurfaceInfo = 43` and
 `Type_Count = 44`. `LuaType` is a transparent integer newtype so an unknown
 future foreign value cannot create an invalid Rust enum.

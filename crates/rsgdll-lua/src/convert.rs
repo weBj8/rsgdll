@@ -2,9 +2,9 @@ use std::ffi::c_uint;
 
 use rsgdll_platform::__private::RawLuaBase;
 
-use crate::{Lua, LuaBytes, LuaError, LuaResult, LuaType};
+use crate::{Lua, LuaBytes, LuaError, LuaResult, LuaType, protected};
 
-const MAX_EXACT_LUA_INTEGER: f64 = (1_u64 << 53) as f64;
+pub(crate) const MAX_EXACT_LUA_INTEGER: f64 = (1_u64 << 53) as f64;
 
 /// Converts one checked Lua stack value into an owned Rust value.
 pub trait FromLua: Sized {
@@ -15,12 +15,7 @@ pub trait FromLua: Sized {
 /// Pushes one Rust value onto a Lua stack.
 pub trait IntoLua {
     /// Pushes this value.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure the pinned foreign push operation cannot raise a
-    /// Lua error or longjmp, including allocation and stack-growth failures.
-    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()>;
+    fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()>;
 }
 
 impl FromLua for bool {
@@ -76,46 +71,37 @@ impl FromLua for () {
 }
 
 impl IntoLua for bool {
-    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
-        // SAFETY: caller guarantees this foreign push cannot longjmp.
-        unsafe { RawLuaBase::push_bool(lua.raw().as_ptr(), self) };
-        Ok(())
+    fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        protected::push_bool(lua.context(), self)
     }
 }
 
 impl IntoLua for f64 {
-    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
-        // SAFETY: caller guarantees this foreign push cannot longjmp.
-        unsafe { RawLuaBase::push_number(lua.raw().as_ptr(), self) };
-        Ok(())
+    fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        protected::push_number(lua.context(), self)
     }
 }
 
 impl IntoLua for () {
-    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
-        // SAFETY: caller guarantees this foreign push cannot longjmp.
-        unsafe { RawLuaBase::push_nil(lua.raw().as_ptr()) };
-        Ok(())
+    fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        protected::push_nil(lua.context())
     }
 }
 
 impl IntoLua for &str {
-    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
-        // SAFETY: caller's no-longjmp guarantee applies to these UTF-8 bytes.
-        unsafe { self.as_bytes().into_lua(lua) }
+    fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        self.as_bytes().into_lua(lua)
     }
 }
 
 impl IntoLua for String {
-    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
-        // SAFETY: caller's longjmp exclusion applies while `self` is borrowed;
-        // `PushString` copies the bytes before returning.
-        unsafe { self.as_str().into_lua(lua) }
+    fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        self.as_str().into_lua(lua)
     }
 }
 
 impl IntoLua for &[u8] {
-    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+    fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
         let length = c_uint::try_from(self.len()).map_err(|_| LuaError::StringTooLong)?;
         let empty = [0_u8];
         let bytes = if self.is_empty() {
@@ -123,25 +109,19 @@ impl IntoLua for &[u8] {
         } else {
             self.as_ptr()
         };
-        // SAFETY: pointer is readable for `length` bytes; empty strings use a
-        // NUL byte because upstream interprets zero length via `strlen`.
-        // Caller guarantees allocation or stack growth cannot longjmp.
-        unsafe { RawLuaBase::push_string(lua.raw().as_ptr(), bytes.cast(), length) };
-        Ok(())
+        protected::push_string(lua.context(), bytes, length)
     }
 }
 
 impl IntoLua for Vec<u8> {
-    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
-        // SAFETY: caller's no-longjmp guarantee applies while bytes are live.
-        unsafe { self.as_slice().into_lua(lua) }
+    fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        self.as_slice().into_lua(lua)
     }
 }
 
 impl IntoLua for LuaBytes {
-    unsafe fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
-        // SAFETY: caller's no-longjmp guarantee applies while bytes are live.
-        unsafe { self.as_bytes().into_lua(lua) }
+    fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+        self.as_bytes().into_lua(lua)
     }
 }
 

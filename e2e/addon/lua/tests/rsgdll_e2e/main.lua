@@ -1,8 +1,17 @@
 local loaded, loadError = pcall( require, "rsgdll_e2e" )
 local module = _G.rsgdll_e2e
+local defaultLoaded, defaultLoadError = pcall( require, "rsgdll_example" )
+local defaultModule = _G.rsgdll_example
 
 if not loaded or not istable( module ) then
     local message = loaded and "require succeeded but module global is missing" or tostring( loadError )
+    file.CreateDir( "rsgdll_e2e" )
+    file.Write( "rsgdll_e2e/module_load_failure.txt", message )
+    print( "[rsgdll-e2e] MODULE_LOAD_FAILURE: " .. message )
+end
+
+if not defaultLoaded or not istable( defaultModule ) then
+    local message = defaultLoaded and "default module global is missing" or tostring( defaultLoadError )
     file.CreateDir( "rsgdll_e2e" )
     file.Write( "rsgdll_e2e/module_load_failure.txt", message )
     print( "[rsgdll-e2e] MODULE_LOAD_FAILURE: " .. message )
@@ -22,6 +31,18 @@ return {
             func = function()
                 expect( loaded ).to.beTrue()
                 expect( module ).to.beA( "table" )
+            end
+        },
+        {
+            name = "loads a default-feature facade consumer",
+            func = function()
+                expect( defaultLoaded ).to.beTrue()
+                expect( defaultModule ).to.beA( "table" )
+                expect( defaultModule.hello( "GMod" ) ).to.equal( "Hello GMod" )
+
+                local ok, message = pcall( defaultModule.get_user, 0 )
+                expect( ok ).to.beFalse()
+                expect( string.find( tostring( message ), "user id must not be zero", 1, true ) ).to.exist()
             end
         },
         {
@@ -60,6 +81,12 @@ return {
                 expect( value.answer ).to.equal( 42 )
                 expect( value.label ).to.equal( "from Rust" )
                 expect( module.table_answer( { answer = 17 } ) ).to.equal( 17 )
+            end
+        },
+        {
+            name = "continues after a caught Rust stack mutation error",
+            func = function()
+                expect( module.recover_table_set() ).to.equal( 42 )
             end
         },
         {
@@ -165,6 +192,14 @@ return {
                     scores = "not a sequence"
                 } )
                 expect( ok ).to.beFalse()
+
+                ok = pcall( module.serde_round_trip, {
+                    name = "sparse",
+                    enabled = true,
+                    scores = { [1000000000] = 1 }
+                } )
+                expect( ok ).to.beFalse()
+                expect( module.plain() ).to.equal( "plain Rust call" )
             end
         },
         {
@@ -231,13 +266,80 @@ return {
                 expect( string.find( message, "intentional E2E panic", 1, true ) ).to.exist()
             end
         },
-        {
-            name = "keeps the server alive after recoverable failures",
-            func = function()
-                pcall( module.result_err )
-                pcall( module.panic_now )
+	{
+		name = "keeps the server alive after recoverable failures",
+		func = function()
+			pcall( module.result_err )
+			pcall( module.panic_now )
 
+			expect( module.plain() ).to.equal( "plain Rust call" )
+		end
+	},
+	{
+		name = "restores the stack after reserve exhaustion",
+		func = function()
+			local ok = pcall( module.overflow_stack )
+
+			expect( ok ).to.beFalse()
+			expect( module.plain() ).to.equal( "plain Rust call" )
+		end
+	},
+	{
+		name = "finalizes userdata during a protected Lua call",
+		func = function()
+			local dropsBefore = module.counter_drops()
+			local counter = module.new_counter( 4 )
+
+			local returned = module.call_once( function( value )
+				getmetatable( counter ).__gc( counter )
+				return value
+			end, 9 )
+
+			expect( returned ).to.equal( 9 )
+			expect( module.counter_drops() ).to.equal( dropsBefore + 1 )
+			expect( pcall( counter.value, counter ) ).to.beFalse()
+		end
+	},
+	{
+		name = "rejects cross-module Rust reentry",
+func = function()
+local ok, message = pcall( module.call_once, function()
+return defaultModule.get_user( 7 )
+                end, 0 )
+
+                expect( ok ).to.beFalse()
+                expect( string.find( tostring( message ), "rsgdll callback re-entry", 1, true ) ).to.exist()
                 expect( module.plain() ).to.equal( "plain Rust call" )
+expect( defaultModule.get_user( 7 ) ).to.equal( "user-7" )
+end
+},
+{
+name = "registry strings cannot disable cross-module reentry guard",
+func = function()
+local ok, message = pcall( module.call_once, function()
+debug.getregistry()["rsgdll.__private.rust_frame_active.v1"] = nil
+return defaultModule.get_user( 7 )
+end, 0 )
+
+expect( ok ).to.beFalse()
+expect( string.find( tostring( message ), "rsgdll callback re-entry", 1, true ) ).to.exist()
+expect( module.plain() ).to.equal( "plain Rust call" )
+end
+},
+        {
+            name = "preserves diagnostics for a genuine native crash",
+            func = function()
+                if not isfunction( module.native_crash ) then
+                    return
+                end
+
+                file.CreateDir( "rsgdll_e2e" )
+                file.Write(
+                    "rsgdll_e2e/native_crash_reached.txt",
+                    "rsgdll-e2e-native-crash-v1"
+                )
+                module.native_crash()
+                error( "native crash function returned" )
             end
         }
     }

@@ -2,12 +2,23 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use std::ffi::{c_char, c_int};
+use std::ffi::{c_char, c_int, c_void};
 
-use rsgdll_platform::__private::{LuaCFunction, RawLuaState};
+use rsgdll_platform::__private::{
+    LuaCFunction, RSGDLL_ABI_CREATE_META_TABLE_SLOT, RSGDLL_ABI_CREATE_TABLE_SLOT,
+    RSGDLL_ABI_GET_TYPE_SLOT, RSGDLL_ABI_LUA_BASE_OFFSET, RSGDLL_ABI_NEW_USERDATA_SLOT,
+    RSGDLL_ABI_NEXT_SLOT, RSGDLL_ABI_PCALL_SLOT, RSGDLL_ABI_POP_SLOT, RSGDLL_ABI_PUSH_BOOL_SLOT,
+    RSGDLL_ABI_PUSH_CLOSURE_SLOT, RSGDLL_ABI_PUSH_META_TABLE_SLOT, RSGDLL_ABI_PUSH_NIL_SLOT,
+    RSGDLL_ABI_PUSH_NUMBER_SLOT, RSGDLL_ABI_PUSH_SLOT, RSGDLL_ABI_PUSH_SPECIAL_SLOT,
+    RSGDLL_ABI_PUSH_STRING_SLOT, RSGDLL_ABI_RAW_GET_SLOT, RSGDLL_ABI_RAW_SET_SLOT,
+    RSGDLL_ABI_REFERENCE_CREATE_SLOT, RSGDLL_ABI_REFERENCE_FREE_SLOT,
+    RSGDLL_ABI_REFERENCE_PUSH_SLOT, RSGDLL_ABI_REMOVE_SLOT, RSGDLL_ABI_SET_META_TABLE_SLOT,
+    RSGDLL_ABI_SET_STATE_SLOT, RSGDLL_ABI_SET_USER_TYPE_SLOT, RSGDLL_ABI_THROW_ERROR_SLOT,
+    RSGDLL_ABI_TOP_SLOT, RawLuaState,
+};
 
 /// Capacity of the stack-owned error buffer supplied by the C++ trampoline.
-pub const ERROR_BUFFER_CAPACITY: u32 = 4096;
+pub const ERROR_BUFFER_CAPACITY: u32 = 32 * 1024;
 /// Maximum number of Lua return values staged outside the Lua stack.
 pub const RETURN_SLOT_CAPACITY: usize = 16;
 /// Capacity of copied string return data.
@@ -19,6 +30,142 @@ pub const RETURN_NUMBER: u32 = 2;
 pub const RETURN_STRING: u32 = 3;
 pub const RETURN_MODE_STAGED: u32 = 0;
 pub const RETURN_MODE_STACK: u32 = 1;
+
+pub const STATUS_SUCCESS: i32 = 0;
+pub const STATUS_RUST_ERROR: i32 = 1;
+pub const STATUS_RUST_PANIC: i32 = 2;
+pub const STATUS_INTERNAL_ERROR: i32 = 3;
+
+pub const OP_PUSH: u32 = 1;
+pub const OP_POP: u32 = 2;
+pub const OP_CREATE_TABLE: u32 = 3;
+pub const OP_PCALL: u32 = 4;
+pub const OP_SET_META_TABLE: u32 = 5;
+pub const OP_NEW_USERDATA: u32 = 6;
+pub const OP_RAW_GET: u32 = 7;
+pub const OP_RAW_SET: u32 = 8;
+pub const OP_NEXT: u32 = 9;
+pub const OP_PUSH_NIL: u32 = 10;
+pub const OP_PUSH_STRING: u32 = 11;
+pub const OP_PUSH_NUMBER: u32 = 12;
+pub const OP_PUSH_BOOL: u32 = 13;
+pub const OP_PUSH_C_CLOSURE: u32 = 14;
+pub const OP_REFERENCE_CREATE: u32 = 15;
+pub const OP_REFERENCE_FREE: u32 = 16;
+pub const OP_REFERENCE_PUSH: u32 = 17;
+pub const OP_PUSH_SPECIAL: u32 = 18;
+pub const OP_CREATE_META_TABLE: u32 = 19;
+pub const OP_PUSH_META_TABLE: u32 = 20;
+pub const OP_SET_USER_TYPE: u32 = 21;
+
+/// One function registration shared with the C++ module-opening firewall.
+#[doc(hidden)]
+#[repr(C)]
+pub struct ModuleRegistration {
+    pub name: *const u8,
+    pub name_length: u32,
+    pub callback_id: u32,
+}
+
+/// Module-local ABI layout passed to C++ without exporting native data symbols.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct AbiLayout {
+    pub lua_base_offset: usize,
+    pub top_slot: usize,
+    pub push_slot: usize,
+    pub pop_slot: usize,
+    pub create_table_slot: usize,
+    pub set_meta_table_slot: usize,
+    pub pcall_slot: usize,
+    pub remove_slot: usize,
+    pub next_slot: usize,
+    pub new_userdata_slot: usize,
+    pub throw_error_slot: usize,
+    pub raw_get_slot: usize,
+    pub raw_set_slot: usize,
+    pub push_nil_slot: usize,
+    pub push_string_slot: usize,
+    pub push_number_slot: usize,
+    pub push_bool_slot: usize,
+    pub push_closure_slot: usize,
+    pub reference_create_slot: usize,
+    pub reference_free_slot: usize,
+    pub reference_push_slot: usize,
+    pub push_special_slot: usize,
+    pub get_type_slot: usize,
+    pub set_state_slot: usize,
+    pub create_meta_table_slot: usize,
+    pub push_meta_table_slot: usize,
+    pub set_user_type_slot: usize,
+}
+
+/// ABI values compiled into this module and shared with its private C++ bridge.
+#[doc(hidden)]
+pub static ABI_LAYOUT: AbiLayout = AbiLayout {
+    lua_base_offset: RSGDLL_ABI_LUA_BASE_OFFSET,
+    top_slot: RSGDLL_ABI_TOP_SLOT,
+    push_slot: RSGDLL_ABI_PUSH_SLOT,
+    pop_slot: RSGDLL_ABI_POP_SLOT,
+    create_table_slot: RSGDLL_ABI_CREATE_TABLE_SLOT,
+    set_meta_table_slot: RSGDLL_ABI_SET_META_TABLE_SLOT,
+    pcall_slot: RSGDLL_ABI_PCALL_SLOT,
+    remove_slot: RSGDLL_ABI_REMOVE_SLOT,
+    next_slot: RSGDLL_ABI_NEXT_SLOT,
+    new_userdata_slot: RSGDLL_ABI_NEW_USERDATA_SLOT,
+    throw_error_slot: RSGDLL_ABI_THROW_ERROR_SLOT,
+    raw_get_slot: RSGDLL_ABI_RAW_GET_SLOT,
+    raw_set_slot: RSGDLL_ABI_RAW_SET_SLOT,
+    push_nil_slot: RSGDLL_ABI_PUSH_NIL_SLOT,
+    push_string_slot: RSGDLL_ABI_PUSH_STRING_SLOT,
+    push_number_slot: RSGDLL_ABI_PUSH_NUMBER_SLOT,
+    push_bool_slot: RSGDLL_ABI_PUSH_BOOL_SLOT,
+    push_closure_slot: RSGDLL_ABI_PUSH_CLOSURE_SLOT,
+    reference_create_slot: RSGDLL_ABI_REFERENCE_CREATE_SLOT,
+    reference_free_slot: RSGDLL_ABI_REFERENCE_FREE_SLOT,
+    reference_push_slot: RSGDLL_ABI_REFERENCE_PUSH_SLOT,
+    push_special_slot: RSGDLL_ABI_PUSH_SPECIAL_SLOT,
+    get_type_slot: RSGDLL_ABI_GET_TYPE_SLOT,
+    set_state_slot: RSGDLL_ABI_SET_STATE_SLOT,
+    create_meta_table_slot: RSGDLL_ABI_CREATE_META_TABLE_SLOT,
+    push_meta_table_slot: RSGDLL_ABI_PUSH_META_TABLE_SLOT,
+    set_user_type_slot: RSGDLL_ABI_SET_USER_TYPE_SLOT,
+};
+
+/// One POD Lua operation executed by C++ inside `lua_cpcall`.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct LuaOperation {
+    pub opcode: u32,
+    pub a: i32,
+    pub b: i32,
+    pub c: i32,
+    pub pointer: *const c_void,
+    pub length: u32,
+    pub reserved: u32,
+    pub number: f64,
+    pub result_pointer: *mut c_void,
+    pub result_integer: i64,
+}
+
+impl LuaOperation {
+    #[must_use]
+    pub const fn new(opcode: u32) -> Self {
+        Self {
+            opcode,
+            a: 0,
+            b: 0,
+            c: 0,
+            pointer: std::ptr::null(),
+            length: 0,
+            reserved: 0,
+            number: 0.0,
+            result_pointer: std::ptr::null_mut(),
+            result_integer: 0,
+        }
+    }
+}
 
 /// One POD Lua return value written by Rust and consumed by C++.
 #[derive(Debug, Clone, Copy)]
@@ -52,7 +199,7 @@ impl DispatchResult {
     #[must_use]
     pub const fn success(return_count: i32) -> Self {
         Self {
-            status: 0,
+            status: STATUS_SUCCESS,
             return_count,
             error_length: 0,
             return_mode: RETURN_MODE_STAGED,
@@ -62,7 +209,7 @@ impl DispatchResult {
     #[must_use]
     pub const fn stack_success(return_count: i32) -> Self {
         Self {
-            status: 0,
+            status: STATUS_SUCCESS,
             return_count,
             error_length: 0,
             return_mode: RETURN_MODE_STACK,
@@ -85,12 +232,69 @@ pub type Dispatcher =
     unsafe extern "C" fn(*mut RawLuaState, *mut c_char, u32, *mut ReturnBuffer) -> DispatchResult;
 
 unsafe extern "C" {
+    #[cfg(feature = "test-support")]
+    fn rsgdll_bridge_enable_test_mode(layout: *const AbiLayout);
+    #[cfg(feature = "test-support")]
+    fn rsgdll_bridge_test_last_dispatch_status() -> c_int;
+    fn rsgdll_bridge_execute(
+        state: *mut RawLuaState,
+        lua_base: *mut c_void,
+        operation: *mut LuaOperation,
+    ) -> c_int;
     fn rsgdll_bridge_set_dispatcher(dispatcher: Dispatcher);
     fn rsgdll_bridge_trampoline(state: *mut RawLuaState) -> c_int;
 }
 
+#[doc(hidden)]
+#[cfg(feature = "test-support")]
+pub mod __private {
+    /// Enables the fake-`ILuaBase` execution path used by workspace tests.
+    ///
+    /// ```compile_fail
+    /// rsgdll_bridge::__private::enable_test_mode();
+    /// ```
+    ///
+    /// # Safety
+    ///
+    /// Every setup vtable method used before the protected call must return
+    /// normally rather than raising a Lua error or performing `longjmp`.
+    pub unsafe fn enable_test_mode() {
+        // SAFETY: the static layout remains valid for the process lifetime.
+        unsafe { super::rsgdll_bridge_enable_test_mode(&super::ABI_LAYOUT) };
+    }
+
+    /// Returns the dispatcher status observed by this thread's last trampoline call.
+    #[must_use]
+    pub fn last_dispatch_status() -> i32 {
+        // SAFETY: the C++ function reads only thread-local test instrumentation.
+        unsafe { super::rsgdll_bridge_test_last_dispatch_status() }
+    }
+}
+
+/// Executes one potentially throwing Lua operation under Lua's native
+/// protected-call boundary.
+///
+/// # Safety
+///
+/// Pointers must refer to the same live Lua state and `ILuaBase`. Any pointer
+/// stored in `operation` must satisfy the selected opcode's ABI contract.
+pub unsafe fn execute(
+    state: *mut RawLuaState,
+    lua_base: *mut c_void,
+    operation: &mut LuaOperation,
+) -> c_int {
+    // SAFETY: caller upholds the shared-state and opcode-specific contracts.
+    unsafe { rsgdll_bridge_execute(state, lua_base, operation) }
+}
+
 /// Replaces the process-wide dispatcher used by the C++ trampoline.
-pub fn set_dispatcher(dispatcher: Dispatcher) {
+///
+/// # Safety
+///
+/// The dispatcher must treat all pointers as borrowed for one call, must not
+/// unwind, and must report only return values it actually leaves on the stack
+/// or stages in the supplied buffer.
+pub unsafe fn set_dispatcher(dispatcher: Dispatcher) {
     // SAFETY: function pointer has the exact C ABI expected by the bridge and
     // remains valid for the process lifetime.
     unsafe { rsgdll_bridge_set_dispatcher(dispatcher) };
@@ -102,6 +306,53 @@ pub fn trampoline() -> LuaCFunction {
     rsgdll_bridge_trampoline
 }
 
+const _: () = assert!(STATUS_SUCCESS != STATUS_RUST_ERROR);
+const _: () = assert!(STATUS_RUST_ERROR != STATUS_RUST_PANIC);
+const _: () = assert!(STATUS_RUST_PANIC != STATUS_INTERNAL_ERROR);
 const _: () = assert!(std::mem::size_of::<DispatchResult>() == 16);
 const _: () = assert!(std::mem::size_of::<ReturnSlot>() == 24);
 const _: () = assert!(std::mem::size_of::<ReturnBuffer>() == 4480);
+const _: () = assert!(std::mem::size_of::<LuaOperation>() == 56);
+const _: () = assert!(std::mem::size_of::<ModuleRegistration>() == 16);
+const _: () = assert!(std::mem::size_of::<AbiLayout>() == 27 * std::mem::size_of::<usize>());
+
+#[cfg(all(test, feature = "test-support"))]
+mod tests {
+    use std::ffi::c_int;
+
+    use super::{DispatchResult, ERROR_BUFFER_CAPACITY};
+
+    unsafe extern "C" {
+        fn rsgdll_bridge_test_accepts_dispatch_result(
+            result: DispatchResult,
+            entry_top: c_int,
+            exit_top: c_int,
+        ) -> bool;
+    }
+
+    #[test]
+    fn dispatcher_result_rejects_unbacked_stack_values() {
+        // Given: a dispatcher claims one stack return without pushing it.
+        let result = DispatchResult::stack_success(1);
+
+        // When: C++ validates the result against unchanged stack height.
+        // Then: it rejects the unbacked return count.
+        assert!(!unsafe { rsgdll_bridge_test_accepts_dispatch_result(result, 0, 0) });
+    }
+
+    #[test]
+    fn diagnostic_buffer_preserves_the_architecture_backtrace_budget() {
+        assert_eq!(ERROR_BUFFER_CAPACITY, 32 * 1024);
+    }
+
+    #[test]
+    fn vtable_pointer_is_loaded_bytewise_when_calling_lua() {
+        // Given: the C++ source implementing Lua vtable dispatch.
+        let source = include_str!("firewall.cpp");
+
+        // When: the vtable load expression is inspected.
+        // Then: it copies object representation instead of aliasing as `void ***`.
+        assert!(source.contains("std::memcpy(&vtable, lua_base, sizeof(vtable));"));
+        assert!(!source.contains("reinterpret_cast<void ***"));
+    }
+}

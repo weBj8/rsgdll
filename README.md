@@ -55,6 +55,24 @@ fn user_name(id: u64) -> Result<String, LookupError> {
 Errors retain normal Rust `Display`/`source` behavior and become Lua errors
 after Rust returns. Lua callers can use `pcall`.
 
+## Panic strategy
+
+With `panic = "unwind"`, rsgdll catches callback panics, returns normally
+through Rust, and lets the C++ firewall raise a Lua error. With
+`panic = "abort"`, Rust terminates the process immediately; no `PanicReport`
+or Lua error can be produced, and Lua `pcall` cannot catch the panic.
+
+Potentially throwing Lua mutations run in a C++ executor closure that is
+prepared before Rust is entered and invoked through `ILuaBase::PCall`.
+Failures therefore return to Rust as `LuaError`; no Lua `longjmp` removes a
+Rust frame.
+
+The supported runtime is Garry's Mod's pinned default `ILuaBase`
+implementation; replacement implementations may not throw C++ exceptions
+through framework calls. Dynamic binary-module unload/reload is unsupported:
+keep the module loaded until Lua-state/process teardown. See
+[`docs/abi-reference.md`](docs/abi-reference.md) for the exact contract.
+
 ## Lua callback
 
 ```rust
@@ -62,10 +80,8 @@ use rsgdll::prelude::*;
 
 #[rsgdll::function]
 fn call_greeting(frame: &mut StackFrame<'_, '_>) -> Result<String, LuaError> {
-    // SAFETY: capture occurs inside the generated callback firewall; call()
-    // enters Lua through PCall.
-    let callback = unsafe { frame.function(1)? };
-    let (greeting,) = unsafe { callback.call(frame, ("Ada",))? };
+    let callback = frame.function(1)?;
+    let (greeting,) = callback.call(frame, ("Ada",))?;
     Ok(greeting)
 }
 ```
@@ -96,23 +112,17 @@ impl From<LuaError> for UserdataError {
 
 #[rsgdll::function]
 fn new_counter(frame: &mut StackFrame<'_, '_>) -> Result<LuaStackValues, UserdataError> {
-    // SAFETY: generated callback firewall contains all Lua mutations.
-    unsafe {
-        let kind = frame.userdata_type::<Counter>("example.Counter")?;
-        counter_add
-            .install_method(frame, &kind, "add")
-            .map_err(|error| UserdataError(error.to_string()))?;
-        install_userdata_gc(frame, &kind)
-            .map_err(|error| UserdataError(error.to_string()))?;
-        kind.push(frame, Counter(frame.get(1)?))?;
-    }
+    let kind = frame.userdata_type::<Counter>("example.Counter")?;
+    counter_add
+        .install_method(frame, &kind, "add")
+        .map_err(|error| UserdataError(error.to_string()))?;
+    kind.push(frame, Counter(frame.get(1)?))?;
     Ok(LuaStackValues::new(1))
 }
 
 #[rsgdll::function]
 fn counter_add(frame: &mut StackFrame<'_, '_>) -> Result<f64, LuaError> {
-    // SAFETY: retrieves the metatable registered by new_counter.
-    let kind = unsafe { frame.userdata_type::<Counter>("example.Counter")? };
+    let kind = frame.userdata_type::<Counter>("example.Counter")?;
     let amount = frame.get::<f64>(2)?;
     let mut counter = kind.borrow_mut(frame, 1)?;
     counter.0 += amount;
@@ -159,10 +169,11 @@ fn is_dedicated(main_thread: &mut MainThread) -> Result<bool, rsgdll::engine::En
 ## Stage a module
 
 ```text
-cargo xtask stage server example x86_64-unknown-linux-gnu \
-  target/release/librsgdll_example.so garrysmod/lua/bin
+mkdir -p garrysmod/lua/bin
+cp target/release/librsgdll_example.so \
+  garrysmod/lua/bin/gmsv_example_linux64.dll
 ```
 
-This stages `gmsv_example_linux64.dll`. Use `client` for `gmcl_*`.
+For a client module, change the `gmsv` prefix to `gmcl`.
 Filename support does not imply runtime support; see
 [`docs/targets.md`](docs/targets.md).

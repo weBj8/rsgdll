@@ -3,6 +3,7 @@
 mod signature;
 
 use proc_macro::TokenStream;
+use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote};
 use signature::{
     is_main_thread_context, is_stack_frame_context, is_unit, syntactic_result_ok_type,
@@ -28,27 +29,34 @@ pub fn module(attribute: TokenStream, item: TokenStream) -> TokenStream {
             "`module` requires `fn name(module: &mut ModuleBuilder)` with no return value",
         );
     }
+    let facade = match facade_path() {
+        Ok(facade) => facade,
+        Err(error) => return error.into_compile_error().into(),
+    };
     let name = &function.sig.ident;
     quote! {
         #function
 
         #[doc(hidden)]
         unsafe extern "C" fn __rsgdll_module_initialize(
-            registrations: *mut ::rsgdll::__private::module::RawRegistration,
+            registrations: *mut #facade::__private::module::RawRegistration,
             capacity: u32,
             output_count: *mut u32,
             output_name: *mut *const u8,
             output_name_length: *mut u32,
+            output_abi_layout: *mut *const #facade::__private::module::AbiLayout,
+            error_buffer: *mut ::std::ffi::c_char,
+            error_capacity: u32,
         ) -> u8 {
             // SAFETY: [Category 3 — dangling pointers] C++ supplies its live
             // fixed registration array and writable POD outputs for this call.
             unsafe {
-                ::rsgdll::__private::module::initialize_module(
+                #facade::__private::module::initialize_module(
                     registrations,
                     capacity,
                     output_count,
-                    output_name,
-                    output_name_length,
+                    (output_name, output_name_length, output_abi_layout),
+                    (error_buffer, error_capacity),
                     module_path!(),
                     #name,
                 )
@@ -90,13 +98,20 @@ pub fn function(attribute: TokenStream, item: TokenStream) -> TokenStream {
         return compile_error("`function` does not accept arguments");
     }
     let function = parse_macro_input!(item as ItemFn);
-    match expand_function(function) {
+    let facade = match facade_path() {
+        Ok(facade) => facade,
+        Err(error) => return error.into_compile_error().into(),
+    };
+    match expand_function(function, &facade) {
         Ok(tokens) => tokens.into(),
         Err(message) => compile_error(message),
     }
 }
 
-fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'static str> {
+fn expand_function(
+    mut function: ItemFn,
+    facade: &proc_macro2::TokenStream,
+) -> Result<proc_macro2::TokenStream, &'static str> {
     if function.sig.asyncness.is_some()
         || function.sig.constness.is_some()
         || function.sig.unsafety.is_some()
@@ -148,7 +163,7 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
         arguments.push(quote! {
             let #name: #ty = frame
                 .get(#index)
-                .map_err(|error| -> ::rsgdll::__private::module::BoxError {
+                .map_err(|error| -> #facade::__private::module::BoxError {
                     ::std::boxed::Box::new(error)
                 })?;
         });
@@ -166,7 +181,7 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
     let evaluate = if is_result {
         quote! {
             let output = #call.map_err(
-                |error| -> ::rsgdll::__private::module::BoxError {
+                |error| -> #facade::__private::module::BoxError {
                     ::std::boxed::Box::new(error)
                 },
             )?;
@@ -176,7 +191,7 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
     } else {
         quote! { let output = #call; }
     };
-    let stage = stage_returns(result_type);
+    let stage = stage_returns(result_type, facade);
 
     function.sig.ident = implementation_name;
     function.vis = syn::Visibility::Inherited;
@@ -189,10 +204,10 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
         .collect();
     let main_thread = has_main_thread.then(|| {
         quote! {
-            // SAFETY: generated glue runs only inside the framework's Lua
-            // callback dispatcher on GMod's main thread.
+            // SAFETY: generated glue runs only inside the framework dispatcher
+            // while `frame` proves ownership of the GMod main-thread callback.
             let mut main_thread = unsafe {
-                ::rsgdll::__private::runtime::MainThread::__from_callback()
+                #facade::__private::runtime::main_thread_from_callback(frame)
             };
         }
     });
@@ -202,17 +217,17 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
 
         #(#configuration_attributes)*
         #[allow(non_upper_case_globals)]
-        #visibility const #descriptor_name: ::rsgdll::__private::module::Function =
-            ::rsgdll::__private::module::Function::new(
+        #visibility const #descriptor_name: #facade::__private::module::Function =
+            #facade::__private::module::Function::new(
                 concat!(module_path!(), "::", stringify!(#descriptor_name)),
                 #callback_name,
             );
 
         #(#configuration_attributes)*
         fn #callback_name(
-            frame: &mut ::rsgdll::__private::lua::StackFrame<'_, '_>,
-            returns: &mut ::rsgdll::__private::module::ReturnWriter<'_>,
-        ) -> ::std::result::Result<(), ::rsgdll::__private::module::BoxError> {
+            frame: &mut #facade::__private::lua::StackFrame<'_, '_>,
+            returns: &mut #facade::__private::module::ReturnWriter<'_>,
+        ) -> ::std::result::Result<(), #facade::__private::module::BoxError> {
             #main_thread
             #(#arguments)*
             #evaluate
@@ -222,7 +237,7 @@ fn expand_function(mut function: ItemFn) -> Result<proc_macro2::TokenStream, &'s
     })
 }
 
-fn stage_returns(ty: Option<&Type>) -> proc_macro2::TokenStream {
+fn stage_returns(ty: Option<&Type>, facade: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
     match ty {
         None => quote! {},
         Some(Type::Tuple(tuple)) if tuple.elems.is_empty() => quote! {},
@@ -234,7 +249,7 @@ fn stage_returns(ty: Option<&Type>) -> proc_macro2::TokenStream {
                 let (#(#values,)*) = output;
                 #(
                     returns.push(#values).map_err(
-                        |error| -> ::rsgdll::__private::module::BoxError {
+                        |error| -> #facade::__private::module::BoxError {
                             ::std::boxed::Box::new(error)
                         },
                     )?;
@@ -243,11 +258,25 @@ fn stage_returns(ty: Option<&Type>) -> proc_macro2::TokenStream {
         }
         Some(_) => quote! {
             returns.push(output).map_err(
-                |error| -> ::rsgdll::__private::module::BoxError {
+                |error| -> #facade::__private::module::BoxError {
                     ::std::boxed::Box::new(error)
                 },
             )?;
         },
+    }
+}
+
+fn facade_path() -> Result<proc_macro2::TokenStream, syn::Error> {
+    match crate_name("rsgdll") {
+        Ok(FoundCrate::Itself) => Ok(quote!(crate)),
+        Ok(FoundCrate::Name(name)) => {
+            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
+            Ok(quote!(::#ident))
+        }
+        Err(error) => Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            format!("failed to locate the `rsgdll` facade dependency: {error}"),
+        )),
     }
 }
 

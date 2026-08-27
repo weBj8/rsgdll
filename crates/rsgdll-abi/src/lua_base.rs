@@ -1,4 +1,5 @@
 use core::ffi::{c_char, c_double, c_int, c_uint, c_void};
+use core::mem::{offset_of, size_of};
 
 use crate::{LuaCFunction, RawLuaState, SpecialIndex};
 
@@ -90,6 +91,45 @@ struct RawLuaBaseVTable {
     push_meta_table: BoolIntFn,
     push_user_type: RawVirtualSlot,
     set_user_type: SetUserTypeFn,
+}
+
+macro_rules! define_vtable_slots {
+    ($($symbol:ident => $field:ident;)+) => {
+        $(
+            #[doc(hidden)]
+            pub const $symbol: usize =
+                offset_of!(RawLuaBaseVTable, $field) / size_of::<RawVirtualSlot>();
+        )+
+    };
+}
+
+define_vtable_slots! {
+    RSGDLL_ABI_TOP_SLOT => top;
+    RSGDLL_ABI_PUSH_SLOT => push;
+    RSGDLL_ABI_POP_SLOT => pop;
+    RSGDLL_ABI_CREATE_TABLE_SLOT => create_table;
+    RSGDLL_ABI_SET_META_TABLE_SLOT => set_meta_table;
+    RSGDLL_ABI_PCALL_SLOT => pcall;
+    RSGDLL_ABI_REMOVE_SLOT => remove;
+    RSGDLL_ABI_NEXT_SLOT => next;
+    RSGDLL_ABI_NEW_USERDATA_SLOT => new_userdata;
+    RSGDLL_ABI_THROW_ERROR_SLOT => throw_error;
+    RSGDLL_ABI_RAW_GET_SLOT => raw_get;
+    RSGDLL_ABI_RAW_SET_SLOT => raw_set;
+    RSGDLL_ABI_PUSH_NIL_SLOT => push_nil;
+    RSGDLL_ABI_PUSH_STRING_SLOT => push_string;
+    RSGDLL_ABI_PUSH_NUMBER_SLOT => push_number;
+    RSGDLL_ABI_PUSH_BOOL_SLOT => push_bool;
+    RSGDLL_ABI_PUSH_CLOSURE_SLOT => push_c_closure;
+    RSGDLL_ABI_REFERENCE_CREATE_SLOT => reference_create;
+    RSGDLL_ABI_REFERENCE_FREE_SLOT => reference_free;
+    RSGDLL_ABI_REFERENCE_PUSH_SLOT => reference_push;
+    RSGDLL_ABI_PUSH_SPECIAL_SLOT => push_special;
+    RSGDLL_ABI_GET_TYPE_SLOT => get_type;
+    RSGDLL_ABI_SET_STATE_SLOT => set_state;
+    RSGDLL_ABI_CREATE_META_TABLE_SLOT => create_meta_table;
+    RSGDLL_ABI_PUSH_META_TABLE_SLOT => push_meta_table;
+    RSGDLL_ABI_SET_USER_TYPE_SLOT => set_user_type;
 }
 
 macro_rules! raw_virtual_methods {

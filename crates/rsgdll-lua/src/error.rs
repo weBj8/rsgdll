@@ -24,12 +24,16 @@ pub enum LuaError {
     StackUnderflow { baseline: i32, requested_top: i32 },
     /// Callback return count disagreed with values left on the stack.
     ReturnCountMismatch { expected: i32, actual: i32 },
+    /// A call argument converter reported a different stack effect.
+    ArgumentCountMismatch { expected: i32, actual: i32 },
     /// A count cannot be represented by the pinned ABI.
     CountOverflow,
     /// Closure upvalues are one-based.
     InvalidUpvaluePosition,
     /// A state-owned value was used with a different Lua state.
     WrongState,
+    /// The C++ firewall could not complete one Lua operation.
+    ProtectedOperation,
     /// A protected Lua call raised an error.
     Call { status: i32, message: LuaBytes },
     /// A userdata type name was reused for a different Rust type.
@@ -89,11 +93,16 @@ impl fmt::Display for LuaError {
                 formatter,
                 "callback declared {expected} return values but left {actual} on the stack"
             ),
+            Self::ArgumentCountMismatch { expected, actual } => write!(
+                formatter,
+                "argument converter declared {expected} values but pushed {actual}"
+            ),
             Self::CountOverflow => formatter.write_str("value count exceeds the ABI integer limit"),
             Self::InvalidUpvaluePosition => {
                 formatter.write_str("closure upvalue positions start at one")
             }
             Self::WrongState => formatter.write_str("Lua value belongs to a different state"),
+            Self::ProtectedOperation => formatter.write_str("protected Lua operation failed"),
             Self::Call { status, message } => write!(
                 formatter,
                 "protected Lua call failed with status {status}: {}",

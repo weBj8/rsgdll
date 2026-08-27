@@ -5,6 +5,23 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use rsgdll_abi::{LuaCFunction, LuaType, RawLuaBase, RawLuaState, RawUserData, SpecialIndex};
+use rsgdll_lua::{Lua, LuaResult};
+
+pub trait LuaTestExt: Sized {
+    /// Constructs a checked handle from this fixture's callback state.
+    ///
+    /// # Safety
+    ///
+    /// The state must remain live and exclusively main-thread-bound.
+    unsafe fn from_raw(state: *mut RawLuaState) -> LuaResult<Self>;
+}
+
+impl<'lua> LuaTestExt for Lua<'lua> {
+    unsafe fn from_raw(state: *mut RawLuaState) -> LuaResult<Self> {
+        // SAFETY: caller upholds the fixture state contract.
+        unsafe { rsgdll_lua::__private::from_raw(state) }
+    }
+}
 
 #[derive(Clone)]
 pub enum Value {
@@ -14,9 +31,14 @@ pub enum Value {
     String(Vec<u8>),
     Table(Rc<RefCell<HashMap<Key, Value>>>),
     Function,
+    FunctionCallback {
+        callback: LuaCFunction,
+        upvalues: Vec<Value>,
+    },
     FunctionReturns(Vec<Value>),
     FunctionError(Vec<u8>),
     UserData(*mut RawUserData),
+    GenericUserData(*mut c_void),
     Entity,
 }
 
@@ -38,6 +60,7 @@ struct TestState {
     metatables: HashMap<c_int, Value>,
     next_userdata_type: c_int,
     userdata_allocations: Vec<*mut RawUserData>,
+    get_userdata_calls: usize,
 }
 
 #[repr(C)]
@@ -131,9 +154,13 @@ impl Fixture {
             metatables: HashMap::new(),
             next_userdata_type: 1,
             userdata_allocations: Vec::new(),
+            get_userdata_calls: 0,
         })));
         // SAFETY: raw-owned allocations remain live until `Fixture::drop`.
         unsafe { (*lua_base.as_ptr()).state = state.as_ptr().cast() };
+        // SAFETY: fixture setup vtable methods are deterministic Rust fakes
+        // that never raise Lua errors or perform `longjmp`.
+        unsafe { rsgdll_bridge::__private::enable_test_mode() };
         Self {
             state,
             lua_base,
@@ -155,6 +182,20 @@ impl Fixture {
         // SAFETY: allocation remains live and callers inspect only when no
         // `Lua` access is active.
         unsafe { (*self.state.as_ptr()).references.len() }
+    }
+
+    pub fn get_userdata_calls(&self) -> usize {
+        // SAFETY: allocation remains live and callers inspect only when no
+        // `Lua` access is active.
+        unsafe { (*self.state.as_ptr()).get_userdata_calls }
+    }
+
+    pub fn push_foreign_userdata(&mut self, lua_type: u8, data: *mut c_void) {
+        let header = Box::into_raw(Box::new(RawUserData { data, lua_type }));
+        // SAFETY: fixture exclusively owns the live test state.
+        let state = unsafe { self.state.as_mut() };
+        state.userdata_allocations.push(header);
+        state.stack.push(Value::UserData(header));
     }
 }
 
@@ -240,6 +281,25 @@ unsafe extern "C" fn pop(lua_base: *mut RawLuaBase, count: c_int) {
     // SAFETY: forwarded from a live fixture vtable.
     let state = unsafe { test_state(lua_base) };
     state.stack.truncate(state.stack.len() - count as usize);
+}
+
+unsafe extern "C" fn insert(lua_base: *mut RawLuaBase, index: c_int) {
+    // SAFETY: forwarded from a live fixture vtable.
+    let state = unsafe { test_state(lua_base) };
+    let Some(offset) = stack_offset(state, index) else {
+        return;
+    };
+    if let Some(value) = state.stack.pop() {
+        state.stack.insert(offset, value);
+    }
+}
+
+unsafe extern "C" fn remove(lua_base: *mut RawLuaBase, index: c_int) {
+    // SAFETY: forwarded from a live fixture vtable.
+    let state = unsafe { test_state(lua_base) };
+    if let Some(offset) = stack_offset(state, index) {
+        state.stack.remove(offset);
+    }
 }
 
 unsafe extern "C" fn create_table(lua_base: *mut RawLuaBase) {
@@ -373,15 +433,16 @@ unsafe extern "C" fn push_bool(lua_base: *mut RawLuaBase, value: bool) {
 
 unsafe extern "C" fn push_c_closure(
     lua_base: *mut RawLuaBase,
-    _: LuaCFunction,
+    callback: LuaCFunction,
     upvalue_count: c_int,
 ) {
     // SAFETY: forwarded from a live fixture vtable.
     let state = unsafe { test_state(lua_base) };
+    let first_upvalue = state.stack.len() - upvalue_count as usize;
+    let upvalues = state.stack.split_off(first_upvalue);
     state
         .stack
-        .truncate(state.stack.len() - upvalue_count as usize);
-    state.stack.push(Value::Function);
+        .push(Value::FunctionCallback { callback, upvalues });
 }
 
 unsafe extern "C" fn pcall(
@@ -394,7 +455,7 @@ unsafe extern "C" fn pcall(
     let state = unsafe { test_state(lua_base) };
     let function_offset = state.stack.len() - argument_count as usize - 1;
     let function = state.stack.remove(function_offset);
-    state.stack.truncate(function_offset);
+    let arguments = state.stack.split_off(function_offset);
     match function {
         Value::Function | Value::FunctionReturns(_) if result_count == 0 => 0,
         Value::FunctionReturns(mut values) => {
@@ -406,6 +467,24 @@ unsafe extern "C" fn pcall(
         Value::FunctionError(message) => {
             state.stack.push(Value::String(message));
             1
+        }
+        Value::FunctionCallback { callback, upvalues } => {
+            let outer_stack = std::mem::replace(&mut state.stack, arguments);
+            let outer_upvalues = std::mem::replace(&mut state.upvalues, upvalues);
+            let state_pointer = (state as *mut TestState).cast::<RawLuaState>();
+            // SAFETY: callback receives this fixture's live state.
+            let returned = unsafe { callback(state_pointer) };
+            let returned = usize::try_from(returned).unwrap_or_default();
+            let first_result = state.stack.len().saturating_sub(returned);
+            let mut values = state.stack.split_off(first_result);
+            state.stack = outer_stack;
+            state.upvalues = outer_upvalues;
+            if result_count >= 0 {
+                values.resize(result_count as usize, Value::Nil);
+                values.truncate(result_count as usize);
+            }
+            state.stack.extend(values);
+            0
         }
         _ => {
             state
@@ -430,8 +509,11 @@ unsafe extern "C" fn new_userdata(lua_base: *mut RawLuaBase, _: c_uint) -> *mut 
 
 unsafe extern "C" fn get_userdata(lua_base: *mut RawLuaBase, index: c_int) -> *mut c_void {
     // SAFETY: forwarded from a live fixture vtable.
-    match value(unsafe { test_state(lua_base) }, index) {
+    let state = unsafe { test_state(lua_base) };
+    state.get_userdata_calls += 1;
+    match value(state, index) {
         Some(Value::UserData(header)) => header.cast(),
+        Some(Value::GenericUserData(pointer)) => *pointer,
         _ => std::ptr::null_mut(),
     }
 }
@@ -520,13 +602,17 @@ unsafe extern "C" fn get_type(lua_base: *mut RawLuaBase, index: c_int) -> c_int 
         Some(Value::Number(_)) => LuaType::NUMBER.0,
         Some(Value::String(_)) => LuaType::STRING.0,
         Some(Value::Table(_)) => LuaType::TABLE.0,
-        Some(Value::Function | Value::FunctionReturns(_) | Value::FunctionError(_)) => {
-            LuaType::FUNCTION.0
-        }
+        Some(
+            Value::Function
+            | Value::FunctionCallback { .. }
+            | Value::FunctionReturns(_)
+            | Value::FunctionError(_),
+        ) => LuaType::FUNCTION.0,
         Some(Value::UserData(header)) => {
             // SAFETY: fixture owns this live userdata header.
             i32::from(unsafe { (**header).lua_type })
         }
+        Some(Value::GenericUserData(_)) => LuaType::USER_DATA.0,
         Some(Value::Entity) => LuaType::ENTITY.0,
     }
 }
@@ -535,8 +621,6 @@ unsafe extern "C" fn set_state(lua_base: *mut RawLuaBase, state: *mut RawLuaStat
     // SAFETY: forwarded from a live fixture vtable.
     unsafe { (*(lua_base.cast::<TestLuaBase>())).state = state };
 }
-
-unsafe extern "C" fn int(_: *mut RawLuaBase, _: c_int) {}
 
 fn test_vtable() -> TestVTable {
     TestVTable {
@@ -554,8 +638,8 @@ fn test_vtable() -> TestVTable {
         pcall,
         equal: unused,
         raw_equal: unused,
-        insert: int,
-        remove: int,
+        insert,
+        remove,
         next,
         new_userdata,
         throw_error: unused,

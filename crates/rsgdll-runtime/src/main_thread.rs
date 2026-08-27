@@ -8,15 +8,8 @@ pub struct MainThread {
 }
 
 impl MainThread {
-    /// Creates the capability at the framework callback boundary.
-    ///
-    /// # Safety
-    ///
-    /// Caller must be generated framework glue currently executing a Lua
-    /// callback on GMod's main thread.
-    #[doc(hidden)]
     #[must_use]
-    pub const unsafe fn __from_callback() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             _main_thread: PhantomData,
         }
