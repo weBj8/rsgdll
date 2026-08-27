@@ -60,8 +60,8 @@ jobs:
           $artifact = "target/${{ matrix.target }}/release/rsgdll_example.dll"
           $metadata = & "$env:ProgramFiles/LLVM/bin/llvm-readobj.exe" --file-headers --coff-exports $artifact | Out-String
           if ($metadata -notmatch "Machine: ${{ matrix.machine }}") { throw "unexpected PE machine" }
-          if ($metadata -notmatch "\\bgmod13_open\\b") { throw "missing gmod13_open export" }
-          if ($metadata -notmatch "\\bgmod13_close\\b") { throw "missing gmod13_close export" }
+          if ($metadata -notmatch "Name: gmod13_open") { throw "missing gmod13_open export" }
+          if ($metadata -notmatch "Name: gmod13_close") { throw "missing gmod13_close export" }
 
   msrv:
     runs-on: ubuntu-latest
