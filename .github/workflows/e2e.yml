@@ -3,7 +3,7 @@ name: Garry's Mod E2E
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
