@@ -312,8 +312,16 @@ const _: () = assert!(STATUS_RUST_PANIC != STATUS_INTERNAL_ERROR);
 const _: () = assert!(std::mem::size_of::<DispatchResult>() == 16);
 const _: () = assert!(std::mem::size_of::<ReturnSlot>() == 24);
 const _: () = assert!(std::mem::size_of::<ReturnBuffer>() == 4480);
-const _: () = assert!(std::mem::size_of::<LuaOperation>() == 56);
-const _: () = assert!(std::mem::size_of::<ModuleRegistration>() == 16);
+const _: () = assert!(
+    std::mem::size_of::<LuaOperation>()
+        == if cfg!(all(target_os = "linux", target_pointer_width = "32")) {
+            48
+        } else {
+            56
+        }
+);
+const _: () =
+    assert!(std::mem::size_of::<ModuleRegistration>() == std::mem::size_of::<*const u8>() + 8);
 const _: () = assert!(std::mem::size_of::<AbiLayout>() == 27 * std::mem::size_of::<usize>());
 
 #[cfg(all(test, feature = "test-support"))]

@@ -570,8 +570,10 @@ extern "C" int rsgdll_bridge_gmod13_close(LuaState *) {
 static_assert(sizeof(DispatchResult) == 16);
 static_assert(sizeof(ReturnSlot) == 24);
 static_assert(sizeof(ReturnBuffer) == 4480);
-static_assert(sizeof(ModuleRegistration) == 16);
-static_assert(sizeof(LuaOperation) == 56);
+static_assert(sizeof(ModuleRegistration) == sizeof(void *) + 8);
+static_assert(
+    sizeof(LuaOperation) ==
+    (sizeof(void *) == 4 && alignof(std::int64_t) == 4 ? 48 : 56));
 static_assert(sizeof(AbiLayout) == 27 * sizeof(std::size_t));
 
 #ifdef RSGDLL_TEST_SUPPORT

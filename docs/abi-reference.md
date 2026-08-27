@@ -18,12 +18,27 @@ Part 2 is handwritten against these exact sources:
   [version 1.0](https://raw.githubusercontent.com/wiki/hjl-tools/x86-psABI/x86-64-psABI-1.0.pdf)
   defines the Linux x86_64 C calling convention used by the explicit `this`
   pointer function signatures.
+- System V i386 ABI
+  [fourth edition](https://refspecs.linuxfoundation.org/elf/abi386-4.pdf)
+  defines the Linux x86 calling convention.
+- Microsoft documents the
+  [x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention)
+  and Win32
+  [`__thiscall`](https://learn.microsoft.com/en-us/cpp/cpp/thiscall)
+  used by the Windows targets.
 
-## Linux x86_64 layout
+## Target layouts
 
-`Interface.h` defines the 64-bit `lua_State` module prefix as:
+`Interface.h` defines two `lua_State` module prefixes:
 
 ```text
+Linux x86 / Windows x86:
+70 opaque bytes
+2 alignment bytes
+ILuaBase* at byte 72
+total Rust prefix size 76 bytes
+
+Linux x86_64 / Windows x86_64:
 114 opaque bytes
 6 alignment bytes
 ILuaBase* at byte 120
@@ -31,10 +46,14 @@ total Rust prefix size 128 bytes
 ```
 
 `LuaBase.h` declares `ILuaBase` virtual functions in slot order. The raw Rust
-object contains its private vtable and state pointers (16 bytes total), and
-its public operations are named, typed unsafe functions. The vtable address
-point contains 55 callable slots: `Top` is slot 0, `SetState` is slot 50, and
-`SetUserType` is slot 54. No public API accepts an arbitrary slot index.
+object contains its private vtable and state pointers (8 bytes on x86, 16
+bytes on x86_64), and its public operations are named, typed unsafe functions.
+The vtable address point contains 55 callable slots: `Top` is slot 0,
+`SetState` is slot 50, and `SetUserType` is slot 54. No public API accepts an
+arbitrary slot index.
+Linux and Windows x86_64 pass `this` using their platform C ABI. Windows x86
+uses the C++ `thiscall` convention; both the Rust raw methods and generated C++
+firewall function pointers select it explicitly.
 
 This description assumes the default `ILuaBase` branch. Defining
 `GMOD_USE_ILUAINTERFACE` selects a different interface and is unsupported.
@@ -81,6 +100,9 @@ future foreign value cannot create an invalid Rust enum.
 | Target | Build status | ABI status | E2E status |
 | --- | --- | --- | --- |
 | Linux x86_64 | build-supported | ABI-verified | E2E-verified (server) |
+| Linux x86 | build-supported | ABI-verified | E2E-verified (server) |
+| Windows x86 | build-supported | header-defined, runtime untested | untested |
+| Windows x86_64 | build-supported | header-defined, runtime untested | untested |
 | all others | compile-time error | not reviewed | not verified |
 
 The community `Interface.h` labels its 64-bit layout "not tested". rsgdll's

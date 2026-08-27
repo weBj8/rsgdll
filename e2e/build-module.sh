@@ -8,10 +8,22 @@ target_dir="${CARGO_TARGET_DIR:-$repo_root/e2e/module/target}"
 build_image="${RSGDLL_E2E_BUILD_IMAGE:-rust:1.97.1-bookworm}"
 crash_test="${RSGDLL_E2E_CRASH_TEST:-0}"
 
-if [[ "$target" != "x86_64-unknown-linux-gnu" ]]; then
-    printf 'unsupported E2E target: %s\n' "$target" >&2
-    exit 2
-fi
+case "$target" in
+    i686-unknown-linux-gnu)
+        module_suffix=linux
+        linker=i686-linux-gnu-gcc
+        cxx=i686-linux-gnu-g++
+        ;;
+    x86_64-unknown-linux-gnu)
+        module_suffix=linux64
+        linker=
+        cxx=
+        ;;
+    *)
+        printf 'unsupported E2E target: %s\n' "$target" >&2
+        exit 2
+        ;;
+esac
 
 mkdir -p "$target_dir"
 container_user=(--user "$(id -u):$(id -g)")
@@ -22,6 +34,8 @@ docker run --rm \
     "${container_user[@]}" \
     --env CARGO_HOME=/tmp/cargo \
     --env CARGO_TARGET_DIR=/target \
+    --env "CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER=$linker" \
+    --env "CXX_i686_unknown_linux_gnu=$cxx" \
     --env RSGDLL_E2E_CRASH_TEST="$crash_test" \
     --volume "$repo_root:/work:ro" \
     --volume "$target_dir:/target" \
@@ -69,9 +83,9 @@ check_exports "$target_dir/$target/debug/librsgdll_example.so"
 
 install -Dm755 \
     "$target_dir/$target/debug/librsgdll_e2e.so" \
-    "$stage_root/garrysmod/lua/bin/gmsv_rsgdll_e2e_linux64.dll"
+    "$stage_root/garrysmod/lua/bin/gmsv_rsgdll_e2e_$module_suffix.dll"
 install -Dm755 \
     "$target_dir/$target/debug/librsgdll_example.so" \
-    "$stage_root/garrysmod/lua/bin/gmsv_rsgdll_example_linux64.dll"
+    "$stage_root/garrysmod/lua/bin/gmsv_rsgdll_example_$module_suffix.dll"
 mkdir -p "$stage_root/garrysmod/addons/rsgdll-e2e"
 cp -R "$repo_root/e2e/addon/." "$stage_root/garrysmod/addons/rsgdll-e2e/"

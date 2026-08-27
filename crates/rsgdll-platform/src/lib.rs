@@ -2,25 +2,36 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(not(any(
+    all(target_os = "linux", target_env = "gnu", target_arch = "x86"),
+    all(target_os = "linux", target_env = "gnu", target_arch = "x86_64"),
+    all(target_os = "windows", target_env = "msvc", target_arch = "x86"),
+    all(target_os = "windows", target_env = "msvc", target_arch = "x86_64"),
+)))]
 compile_error!(
-    "rsgdll-platform has no reviewed ABI description for this target; \
-     only Linux x86_64 is currently header-defined"
+    "rsgdll-platform supports only GNU Linux and MSVC Windows on x86 or x86_64; \
+     this target has no header-defined ABI description"
 );
 
 /// Operating system selected by target configuration.
+#[cfg(target_os = "linux")]
 pub const TARGET_OS: &str = "linux";
+/// Operating system selected by target configuration.
+#[cfg(target_os = "windows")]
+pub const TARGET_OS: &str = "windows";
 
 /// CPU architecture selected by target configuration.
+#[cfg(target_arch = "x86")]
+pub const TARGET_ARCH: &str = "x86";
+/// CPU architecture selected by target configuration.
+#[cfg(target_arch = "x86_64")]
 pub const TARGET_ARCH: &str = "x86_64";
 
 /// Offset of Garry's Mod's `ILuaBase` pointer inside the raw Lua state.
 pub const LUA_BASE_OFFSET: usize = rsgdll_abi::RAW_LUA_BASE_OFFSET;
 
-/// The selected ABI passed the Linux x86_64 real-GMod GLuaTest gate.
-pub const RUNTIME_ABI_VERIFIED: bool = true;
-
-const _: () = assert!(RUNTIME_ABI_VERIFIED);
+/// Whether the selected ABI passed a real-GMod GLuaTest gate.
+pub const RUNTIME_ABI_VERIFIED: bool = cfg!(all(target_os = "linux", target_arch = "x86_64"));
 
 /// Internal ABI plumbing for higher-level workspace crates.
 #[doc(hidden)]
@@ -44,12 +55,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn linux_x86_64_target_matches_header_defined_layout() {
-        // Given: the only target admitted by compile-time gating.
+    fn selected_target_matches_header_defined_layout() {
+        // Given: one target admitted by compile-time gating.
         // When: platform metadata is inspected.
         // Then: its exact header-defined layout is selected.
-        assert_eq!(TARGET_OS, "linux");
-        assert_eq!(TARGET_ARCH, "x86_64");
-        assert_eq!(LUA_BASE_OFFSET, 120);
+        assert!(matches!(TARGET_OS, "linux" | "windows"));
+        assert!(matches!(TARGET_ARCH, "x86" | "x86_64"));
+        assert_eq!(
+            LUA_BASE_OFFSET,
+            if cfg!(target_arch = "x86") { 72 } else { 120 }
+        );
+        assert_eq!(
+            RUNTIME_ABI_VERIFIED,
+            cfg!(all(target_os = "linux", target_arch = "x86_64"))
+        );
     }
 }

@@ -19,6 +19,47 @@ jobs:
       - run: cargo test --workspace --all-features
       - run: cargo test --manifest-path examples/hello-module/Cargo.toml --locked
       - run: cargo package --workspace --allow-dirty --no-verify
+      - run: cmp docs/targets.md crates/rsgdll/docs/targets.md
+
+  linux32:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: i686-unknown-linux-gnu
+      - run: sudo apt-get update && sudo apt-get install --yes g++-i686-linux-gnu
+      - run: cargo build --locked --release --manifest-path examples/hello-module/Cargo.toml --target i686-unknown-linux-gnu
+      - run: |
+          file target/i686-unknown-linux-gnu/release/librsgdll_example.so | grep 'ELF 32-bit'
+          nm -D --defined-only target/i686-unknown-linux-gnu/release/librsgdll_example.so |
+            awk '{print $3}' | grep -qx 'gmod13_open'
+          nm -D --defined-only target/i686-unknown-linux-gnu/release/librsgdll_example.so |
+            awk '{print $3}' | grep -qx 'gmod13_close'
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - target: i686-pc-windows-msvc
+            machine: x86
+          - target: x86_64-pc-windows-msvc
+            machine: x64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+      - shell: pwsh
+        run: |
+          cargo build --locked --release --manifest-path examples/hello-module/Cargo.toml --target ${{ matrix.target }}
+          $artifact = "target/${{ matrix.target }}/release/rsgdll_example.dll"
+          $headers = dumpbin /headers $artifact | Out-String
+          $exports = dumpbin /exports $artifact | Out-String
+          if ($headers -notmatch "machine \\(${{ matrix.machine }}\\)") { throw "unexpected PE machine" }
+          if ($exports -notmatch "\\bgmod13_open\\b") { throw "missing gmod13_open export" }
+          if ($exports -notmatch "\\bgmod13_close\\b") { throw "missing gmod13_close export" }
 
   msrv:
     runs-on: ubuntu-latest

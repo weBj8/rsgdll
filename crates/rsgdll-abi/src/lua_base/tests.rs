@@ -5,47 +5,52 @@ use super::*;
 static PUSHED_BOOL: AtomicBool = AtomicBool::new(false);
 
 unsafe extern "C" fn unused() {}
-unsafe extern "C" fn void(_: *mut RawLuaBase) {}
-unsafe extern "C" fn top(_: *mut RawLuaBase) -> c_int {
-    7
+
+macro_rules! lua_methods {
+    ($(fn $name:ident($($argument:tt: $argument_type:ty),* $(,)?) $(-> $return_type:ty)? $body:block)+) => {
+        $(
+            #[cfg(all(target_os = "windows", target_arch = "x86"))]
+            unsafe extern "thiscall" fn $name(
+                $($argument: $argument_type),*
+            ) $(-> $return_type)? $body
+
+            #[cfg(not(all(target_os = "windows", target_arch = "x86")))]
+            unsafe extern "C" fn $name(
+                $($argument: $argument_type),*
+            ) $(-> $return_type)? $body
+        )+
+    };
 }
-unsafe extern "C" fn int(_: *mut RawLuaBase, _: c_int) {}
-unsafe extern "C" fn int_result(_: *mut RawLuaBase, _: c_int) -> c_int {
-    0
+
+lua_methods! {
+    fn void(_: *mut RawLuaBase) {}
+    fn top(_: *mut RawLuaBase) -> c_int { 7 }
+    fn int(_: *mut RawLuaBase, _: c_int) {}
+    fn int_result(_: *mut RawLuaBase, _: c_int) -> c_int { 0 }
+    fn pcall(_: *mut RawLuaBase, _: c_int, _: c_int, _: c_int) -> c_int { 0 }
+    fn new_userdata(_: *mut RawLuaBase, _: c_uint) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    fn get_userdata(_: *mut RawLuaBase, _: c_int) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    fn create_meta_table(_: *mut RawLuaBase, _: *const c_char) -> c_int { 1 }
+    fn bool_int(_: *mut RawLuaBase, _: c_int) -> bool { true }
+    fn set_user_type(_: *mut RawLuaBase, _: c_int, _: *mut c_void) {}
+    fn get_string(_: *mut RawLuaBase, _: c_int, _: *mut c_uint) -> *const c_char {
+        core::ptr::null()
+    }
+    fn get_number(_: *mut RawLuaBase, _: c_int) -> c_double { 0.0 }
+    fn get_bool(_: *mut RawLuaBase, _: c_int) -> bool { false }
+    fn push_string(_: *mut RawLuaBase, _: *const c_char, _: c_uint) {}
+    fn push_number(_: *mut RawLuaBase, _: c_double) {}
+    fn push_bool(_: *mut RawLuaBase, value: bool) {
+        PUSHED_BOOL.store(value, Ordering::Relaxed);
+    }
+    fn push_c_closure(_: *mut RawLuaBase, _: LuaCFunction, _: c_int) {}
+    fn push_special(_: *mut RawLuaBase, _: SpecialIndex) {}
+    fn set_state(_: *mut RawLuaBase, _: *mut RawLuaState) {}
 }
-unsafe extern "C" fn pcall(_: *mut RawLuaBase, _: c_int, _: c_int, _: c_int) -> c_int {
-    0
-}
-unsafe extern "C" fn new_userdata(_: *mut RawLuaBase, _: c_uint) -> *mut c_void {
-    core::ptr::null_mut()
-}
-unsafe extern "C" fn get_userdata(_: *mut RawLuaBase, _: c_int) -> *mut c_void {
-    core::ptr::null_mut()
-}
-unsafe extern "C" fn create_meta_table(_: *mut RawLuaBase, _: *const c_char) -> c_int {
-    1
-}
-unsafe extern "C" fn bool_int(_: *mut RawLuaBase, _: c_int) -> bool {
-    true
-}
-unsafe extern "C" fn set_user_type(_: *mut RawLuaBase, _: c_int, _: *mut c_void) {}
-unsafe extern "C" fn get_string(_: *mut RawLuaBase, _: c_int, _: *mut c_uint) -> *const c_char {
-    core::ptr::null()
-}
-unsafe extern "C" fn get_number(_: *mut RawLuaBase, _: c_int) -> c_double {
-    0.0
-}
-unsafe extern "C" fn get_bool(_: *mut RawLuaBase, _: c_int) -> bool {
-    false
-}
-unsafe extern "C" fn push_string(_: *mut RawLuaBase, _: *const c_char, _: c_uint) {}
-unsafe extern "C" fn push_number(_: *mut RawLuaBase, _: c_double) {}
-unsafe extern "C" fn push_bool(_: *mut RawLuaBase, value: bool) {
-    PUSHED_BOOL.store(value, Ordering::Relaxed);
-}
-unsafe extern "C" fn push_c_closure(_: *mut RawLuaBase, _: LuaCFunction, _: c_int) {}
-unsafe extern "C" fn push_special(_: *mut RawLuaBase, _: SpecialIndex) {}
-unsafe extern "C" fn set_state(_: *mut RawLuaBase, _: *mut RawLuaState) {}
 
 fn test_vtable() -> RawLuaBaseVTable {
     RawLuaBaseVTable {
@@ -149,7 +154,16 @@ fn nullable_c_function_uses_one_pointer_slot() {
 
 #[test]
 fn raw_lua_base_matches_pinned_class_layout() {
-    assert_eq!(core::mem::size_of::<RawLuaBase>(), 16);
-    assert_eq!(core::mem::align_of::<RawLuaBase>(), 8);
-    assert_eq!(core::mem::offset_of!(RawLuaBase, state), 8);
+    assert_eq!(
+        core::mem::size_of::<RawLuaBase>(),
+        2 * core::mem::size_of::<*const ()>()
+    );
+    assert_eq!(
+        core::mem::align_of::<RawLuaBase>(),
+        core::mem::align_of::<*const ()>()
+    );
+    assert_eq!(
+        core::mem::offset_of!(RawLuaBase, state),
+        core::mem::size_of::<*const ()>()
+    );
 }

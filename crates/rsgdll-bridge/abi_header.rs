@@ -74,35 +74,40 @@ fn generated_header(
     }
 
     output.push_str(
-        "\nusing Dispatcher = DispatchResult (*)(LuaState *, char *, std::uint32_t, ReturnBuffer *);\n\
-         using ThrowError = void (*)(void *, const char *);\n\
-         using CreateTable = void (*)(void *);\n\
-         using RawSet = void (*)(void *, std::int32_t);\n\
-         using PushNil = void (*)(void *);\n\
-         using PushString = void (*)(void *, const char *, std::uint32_t);\n\
-         using PushNumber = void (*)(void *, double);\n\
-         using PushBool = void (*)(void *, bool);\n\
-         using PushClosure = void (*)(void *, std::int32_t (*)(LuaState *), std::int32_t);\n\
-         using PushSpecial = void (*)(void *, std::int32_t);\n\
-         using Pop = void (*)(void *, std::int32_t);\n\
-         using SetState = void (*)(void *, LuaState *);\n\
+        "\n#if defined(_WIN32) && !defined(_WIN64)\n\
+         #define RSGDLL_LUA_CALL __thiscall\n\
+         #else\n\
+         #define RSGDLL_LUA_CALL\n\
+         #endif\n\
+         \nusing Dispatcher = DispatchResult (*)(LuaState *, char *, std::uint32_t, ReturnBuffer *);\n\
+         using ThrowError = void (RSGDLL_LUA_CALL *)(void *, const char *);\n\
+         using CreateTable = void (RSGDLL_LUA_CALL *)(void *);\n\
+         using RawSet = void (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using PushNil = void (RSGDLL_LUA_CALL *)(void *);\n\
+         using PushString = void (RSGDLL_LUA_CALL *)(void *, const char *, std::uint32_t);\n\
+         using PushNumber = void (RSGDLL_LUA_CALL *)(void *, double);\n\
+         using PushBool = void (RSGDLL_LUA_CALL *)(void *, bool);\n\
+         using PushClosure = void (RSGDLL_LUA_CALL *)(void *, std::int32_t (*)(LuaState *), std::int32_t);\n\
+         using PushSpecial = void (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using Pop = void (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using SetState = void (RSGDLL_LUA_CALL *)(void *, LuaState *);\n\
 using ModuleInitializer = std::uint8_t (*)(ModuleRegistration *, std::uint32_t,\n\
     std::uint32_t *, const std::uint8_t **, std::uint32_t *, const AbiLayout **,\n\
     char *, std::uint32_t);\n\
-         using Push = void (*)(void *, std::int32_t);\n\
-         using Top = std::int32_t (*)(void *);\n\
-         using Remove = void (*)(void *, std::int32_t);\n\
-         using PCall = std::int32_t (*)(void *, std::int32_t, std::int32_t, std::int32_t);\n\
-         using SetMetaTable = void (*)(void *, std::int32_t);\n\
-         using NewUserdata = void *(*)(void *, std::uint32_t);\n\
-         using Next = std::int32_t (*)(void *, std::int32_t);\n\
-         using ReferenceCreate = std::int32_t (*)(void *);\n\
-         using ReferenceFree = void (*)(void *, std::int32_t);\n\
-         using ReferencePush = void (*)(void *, std::int32_t);\n\
-         using CreateMetaTable = std::int32_t (*)(void *, const char *);\n\
-         using PushMetaTable = bool (*)(void *, std::int32_t);\n\
-         using SetUserType = void (*)(void *, std::int32_t, void *);\n\
-         using GetType = std::int32_t (*)(void *, std::int32_t);\n",
+         using Push = void (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using Top = std::int32_t (RSGDLL_LUA_CALL *)(void *);\n\
+         using Remove = void (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using PCall = std::int32_t (RSGDLL_LUA_CALL *)(void *, std::int32_t, std::int32_t, std::int32_t);\n\
+         using SetMetaTable = void (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using NewUserdata = void *(RSGDLL_LUA_CALL *)(void *, std::uint32_t);\n\
+         using Next = std::int32_t (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using ReferenceCreate = std::int32_t (RSGDLL_LUA_CALL *)(void *);\n\
+         using ReferenceFree = void (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using ReferencePush = void (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using CreateMetaTable = std::int32_t (RSGDLL_LUA_CALL *)(void *, const char *);\n\
+         using PushMetaTable = bool (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\
+         using SetUserType = void (RSGDLL_LUA_CALL *)(void *, std::int32_t, void *);\n\
+         using GetType = std::int32_t (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n",
     );
 
     write_cpp_enum(&mut output, constants, "RETURN_")?;

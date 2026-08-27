@@ -4,26 +4,41 @@ use core::mem::{offset_of, size_of};
 use crate::{LuaCFunction, RawLuaState, SpecialIndex};
 
 type RawVirtualSlot = unsafe extern "C" fn();
-type VoidFn = unsafe extern "C" fn(*mut RawLuaBase);
-type TopFn = unsafe extern "C" fn(*mut RawLuaBase) -> c_int;
-type IntFn = unsafe extern "C" fn(*mut RawLuaBase, c_int);
-type IntResultFn = unsafe extern "C" fn(*mut RawLuaBase, c_int) -> c_int;
-type PCallFn = unsafe extern "C" fn(*mut RawLuaBase, c_int, c_int, c_int) -> c_int;
-type NewUserdataFn = unsafe extern "C" fn(*mut RawLuaBase, c_uint) -> *mut c_void;
-type GetUserdataFn = unsafe extern "C" fn(*mut RawLuaBase, c_int) -> *mut c_void;
-type CreateMetaTableFn = unsafe extern "C" fn(*mut RawLuaBase, *const c_char) -> c_int;
-type BoolIntFn = unsafe extern "C" fn(*mut RawLuaBase, c_int) -> bool;
-type SetUserTypeFn = unsafe extern "C" fn(*mut RawLuaBase, c_int, *mut c_void);
-type PushSpecialFn = unsafe extern "C" fn(*mut RawLuaBase, SpecialIndex);
-type GetStringFn = unsafe extern "C" fn(*mut RawLuaBase, c_int, *mut c_uint) -> *const c_char;
-type GetNumberFn = unsafe extern "C" fn(*mut RawLuaBase, c_int) -> c_double;
-type GetBoolFn = unsafe extern "C" fn(*mut RawLuaBase, c_int) -> bool;
-type PushStringFn = unsafe extern "C" fn(*mut RawLuaBase, *const c_char, c_uint);
-type PushNumberFn = unsafe extern "C" fn(*mut RawLuaBase, c_double);
-type PushBoolFn = unsafe extern "C" fn(*mut RawLuaBase, bool);
-type PushCClosureFn = unsafe extern "C" fn(*mut RawLuaBase, LuaCFunction, c_int);
-type ReferenceCreateFn = unsafe extern "C" fn(*mut RawLuaBase) -> c_int;
-type SetStateFn = unsafe extern "C" fn(*mut RawLuaBase, *mut RawLuaState);
+
+#[cfg(all(target_os = "windows", target_arch = "x86"))]
+macro_rules! lua_method_fn {
+    (($($argument:ty),* $(,)?) -> $return_type:ty) => {
+        unsafe extern "thiscall" fn($($argument),*) -> $return_type
+    };
+}
+
+#[cfg(not(all(target_os = "windows", target_arch = "x86")))]
+macro_rules! lua_method_fn {
+    (($($argument:ty),* $(,)?) -> $return_type:ty) => {
+        unsafe extern "C" fn($($argument),*) -> $return_type
+    };
+}
+
+type VoidFn = lua_method_fn!((*mut RawLuaBase) -> ());
+type TopFn = lua_method_fn!((*mut RawLuaBase) -> c_int);
+type IntFn = lua_method_fn!((*mut RawLuaBase, c_int) -> ());
+type IntResultFn = lua_method_fn!((*mut RawLuaBase, c_int) -> c_int);
+type PCallFn = lua_method_fn!((*mut RawLuaBase, c_int, c_int, c_int) -> c_int);
+type NewUserdataFn = lua_method_fn!((*mut RawLuaBase, c_uint) -> *mut c_void);
+type GetUserdataFn = lua_method_fn!((*mut RawLuaBase, c_int) -> *mut c_void);
+type CreateMetaTableFn = lua_method_fn!((*mut RawLuaBase, *const c_char) -> c_int);
+type BoolIntFn = lua_method_fn!((*mut RawLuaBase, c_int) -> bool);
+type SetUserTypeFn = lua_method_fn!((*mut RawLuaBase, c_int, *mut c_void) -> ());
+type PushSpecialFn = lua_method_fn!((*mut RawLuaBase, SpecialIndex) -> ());
+type GetStringFn = lua_method_fn!((*mut RawLuaBase, c_int, *mut c_uint) -> *const c_char);
+type GetNumberFn = lua_method_fn!((*mut RawLuaBase, c_int) -> c_double);
+type GetBoolFn = lua_method_fn!((*mut RawLuaBase, c_int) -> bool);
+type PushStringFn = lua_method_fn!((*mut RawLuaBase, *const c_char, c_uint) -> ());
+type PushNumberFn = lua_method_fn!((*mut RawLuaBase, c_double) -> ());
+type PushBoolFn = lua_method_fn!((*mut RawLuaBase, bool) -> ());
+type PushCClosureFn = lua_method_fn!((*mut RawLuaBase, LuaCFunction, c_int) -> ());
+type ReferenceCreateFn = lua_method_fn!((*mut RawLuaBase) -> c_int);
+type SetStateFn = lua_method_fn!((*mut RawLuaBase, *mut RawLuaState) -> ());
 
 /// Raw C++ `GarrysMod::Lua::ILuaBase` object.
 #[repr(C)]
@@ -145,7 +160,7 @@ macro_rules! raw_virtual_methods {
                 /// # Safety
                 ///
                 /// `lua_base` must be a live `ILuaBase` object using the pinned
-                /// Linux x86_64 vtable. All pointers and stack indices must
+                /// selected target vtable. All pointers and stack indices must
                 /// satisfy the corresponding upstream method contract. The
                 /// caller must prevent Lua longjmp, C++ exceptions, and Rust
                 /// panics from crossing this invocation.
@@ -231,9 +246,10 @@ raw_virtual_methods! {
 }
 
 const _: () = assert!(core::mem::size_of::<RawVirtualSlot>() == core::mem::size_of::<*const ()>());
-const _: () = assert!(core::mem::size_of::<RawLuaBase>() == 16);
-const _: () = assert!(core::mem::align_of::<RawLuaBase>() == 8);
-const _: () = assert!(core::mem::offset_of!(RawLuaBase, state) == 8);
+const _: () = assert!(core::mem::size_of::<RawLuaBase>() == 2 * core::mem::size_of::<*const ()>());
+const _: () = assert!(core::mem::align_of::<RawLuaBase>() == core::mem::align_of::<*const ()>());
+const _: () =
+    assert!(core::mem::offset_of!(RawLuaBase, state) == core::mem::size_of::<*const ()>());
 
 #[cfg(test)]
 mod tests;

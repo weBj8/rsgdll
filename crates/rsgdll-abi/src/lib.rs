@@ -6,10 +6,15 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(not(any(
+    all(target_os = "linux", target_env = "gnu", target_arch = "x86"),
+    all(target_os = "linux", target_env = "gnu", target_arch = "x86_64"),
+    all(target_os = "windows", target_env = "msvc", target_arch = "x86"),
+    all(target_os = "windows", target_env = "msvc", target_arch = "x86_64"),
+)))]
 compile_error!(
-    "rsgdll-abi has only a header-defined layout for Linux x86_64; \
-     this target has no reviewed ABI description"
+    "rsgdll-abi supports only GNU Linux and MSVC Windows on x86 or x86_64; \
+     this target has no header-defined ABI description"
 );
 
 mod lua_base;

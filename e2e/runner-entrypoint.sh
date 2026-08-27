@@ -6,6 +6,8 @@ gmod_root=/home/steam/gmodserver
 server="$gmod_root/garrysmod"
 artifacts=/e2e-artifacts
 close_hook="$artifacts/close-hook.txt"
+module_suffix="${RSGDLL_E2E_MODULE_SUFFIX:-linux64}"
+server_binary="${RSGDLL_E2E_SERVER_BINARY:-$gmod_root/bin/linux64/srcds}"
 
 : > "$artifacts/backtrace.txt"
 rm -f "$close_hook"
@@ -48,7 +50,6 @@ done
 } > "$artifacts/core-path.txt"
 if [[ -n "$core_file" ]]; then
     cp --no-preserve=mode "$core_file" "$artifacts/core"
-    server_binary="$gmod_root/bin/linux64/srcds"
     if [[ -x "$server_binary" ]]; then
         gdb --batch \
             -ex "set pagination off" \
@@ -56,18 +57,18 @@ if [[ -n "$core_file" ]]; then
             "$server_binary" \
             "$core_file" > "$artifacts/backtrace.txt" 2>&1 || true
     else
-        printf 'srcds_linux64 not found; gdb backtrace unavailable\n' \
+        printf 'server binary not found; gdb backtrace unavailable\n' \
             >> "$artifacts/backtrace.txt"
     fi
 elif [[ ! -s "$artifacts/backtrace.txt" ]]; then
     printf 'no core file produced\n' > "$artifacts/backtrace.txt"
 fi
 
-module_path="$server/lua/bin/gmsv_rsgdll_e2e_linux64.dll"
+module_path="$server/lua/bin/gmsv_rsgdll_e2e_$module_suffix.dll"
 if [[ -f "$module_path" && ! -f "$artifacts/tested-module.dll" ]]; then
     cp "$module_path" "$artifacts/tested-module.dll"
 fi
-default_module_path="$server/lua/bin/gmsv_rsgdll_example_linux64.dll"
+default_module_path="$server/lua/bin/gmsv_rsgdll_example_$module_suffix.dll"
 if [[ -f "$default_module_path" &&
     ! -f "$artifacts/tested-default-module.dll" ]]; then
     cp "$default_module_path" "$artifacts/tested-default-module.dll"

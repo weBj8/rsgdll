@@ -18,7 +18,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     build
         .cpp(true)
         .std("c++17")
-        .flag("-fno-exceptions")
+        .flag_if_supported("-fno-exceptions")
+        .flag_if_supported("/EHs-c-")
         .include(output)
         .file("src/firewall.cpp");
     if std::env::var_os("CARGO_FEATURE_TEST_SUPPORT").is_some() {

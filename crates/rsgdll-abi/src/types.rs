@@ -14,9 +14,9 @@ pub struct RawUserData {
     pub lua_type: u8,
 }
 
-const _: () = assert!(size_of::<RawUserData>() == 16);
-const _: () = assert!(align_of::<RawUserData>() == 8);
-const _: () = assert!(offset_of!(RawUserData, lua_type) == 8);
+const _: () = assert!(size_of::<RawUserData>() == 2 * size_of::<*mut c_void>());
+const _: () = assert!(align_of::<RawUserData>() == align_of::<*mut c_void>());
+const _: () = assert!(offset_of!(RawUserData, lua_type) == size_of::<*mut c_void>());
 
 /// Integer Lua/GMod type tag.
 ///
@@ -89,13 +89,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn raw_userdata_matches_linux_x86_64_c_layout() {
+    fn raw_userdata_matches_selected_c_layout() {
         // Given: one pointer followed by the one-byte GMod type tag.
         // When: Rust applies C field alignment.
         // Then: layout matches the community C++ header.
-        assert_eq!(size_of::<RawUserData>(), 16);
-        assert_eq!(align_of::<RawUserData>(), 8);
-        assert_eq!(offset_of!(RawUserData, lua_type), 8);
+        assert_eq!(size_of::<RawUserData>(), 2 * size_of::<*mut c_void>());
+        assert_eq!(align_of::<RawUserData>(), align_of::<*mut c_void>());
+        assert_eq!(offset_of!(RawUserData, lua_type), size_of::<*mut c_void>());
     }
 
     #[test]

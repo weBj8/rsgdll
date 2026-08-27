@@ -5,6 +5,8 @@ services:
     entrypoint: ["/bin/bash", "/home/steam/rsgdll-entrypoint.sh"]
     environment:
       RSGDLL_E2E_CLOSE_MARKER: /e2e-artifacts/close-hook.txt
+      RSGDLL_E2E_MODULE_SUFFIX: ${RSGDLL_E2E_MODULE_SUFFIX}
+      RSGDLL_E2E_SERVER_BINARY: ${RSGDLL_E2E_SERVER_BINARY}
     ulimits:
       core:
         soft: -1

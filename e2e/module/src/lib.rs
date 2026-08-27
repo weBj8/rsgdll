@@ -34,9 +34,10 @@ fn module(module: &mut ModuleBuilder) {
         .function("counter_drops", counter_drops)
         .function("binary_echo", binary_echo)
         .function("serde_round_trip", serde_round_trip)
-        .function("engine_is_dedicated", engine_is_dedicated)
         .function("start_background", start_background)
         .function("complete_background", complete_background);
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    module.function("engine_is_dedicated", engine_is_dedicated);
     #[cfg(feature = "crash-test")]
     module.function("native_crash", native_crash);
 }
@@ -46,6 +47,7 @@ fn plain() -> &'static str {
     "plain Rust call"
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[rsgdll::function]
 fn engine_is_dedicated(main_thread: &mut MainThread) -> Result<bool, rsgdll::engine::EngineError> {
     let engine = rsgdll::engine::Engine::attach(main_thread)?;

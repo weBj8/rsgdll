@@ -47,7 +47,10 @@ pub(super) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 pub unsafe extern "C" fn gmod13_close(
                     _state: *mut ::std::ffi::c_void,
                 ) -> ::std::ffi::c_int {
-                    ::core::arch::naked_asm!("jmp rsgdll_bridge_gmod13_close");
+                    ::core::arch::naked_asm!(
+                        "jmp {entry}",
+                        entry = sym rsgdll_bridge_gmod13_close,
+                    );
                 }
             }
         },
@@ -67,6 +70,16 @@ pub(super) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
     );
     quote! {
         #function
+
+        unsafe extern "C" {
+            fn rsgdll_bridge_gmod13_open(
+                state: *mut ::std::ffi::c_void,
+                initializer: *const ::std::ffi::c_void,
+            ) -> ::std::ffi::c_int;
+            fn rsgdll_bridge_gmod13_close(
+                state: *mut ::std::ffi::c_void,
+            ) -> ::std::ffi::c_int;
+        }
 
         #[doc(hidden)]
         unsafe extern "C" fn __rsgdll_module_initialize(
@@ -94,16 +107,44 @@ pub(super) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
+        #[cfg(target_arch = "x86")]
+        unsafe extern "C" fn __rsgdll_module_initializer() -> *const ::std::ffi::c_void {
+            __rsgdll_module_initialize as *const ::std::ffi::c_void
+        }
+
         #[doc(hidden)]
         #[unsafe(naked)]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn gmod13_open(
             _state: *mut ::std::ffi::c_void,
         ) -> ::std::ffi::c_int {
+            #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
             ::core::arch::naked_asm!(
                 "lea rsi, [rip + {initializer}]",
-                "jmp rsgdll_bridge_gmod13_open",
+                "jmp {entry}",
                 initializer = sym __rsgdll_module_initialize,
+                entry = sym rsgdll_bridge_gmod13_open,
+            );
+            #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+            ::core::arch::naked_asm!(
+                "lea rdx, [rip + {initializer}]",
+                "jmp {entry}",
+                initializer = sym __rsgdll_module_initialize,
+                entry = sym rsgdll_bridge_gmod13_open,
+            );
+            #[cfg(target_arch = "x86")]
+            ::core::arch::naked_asm!(
+                "mov ecx, [esp + 4]",
+                "push ecx",
+                "call {initializer}",
+                "pop ecx",
+                "push eax",
+                "push ecx",
+                "call {entry}",
+                "add esp, 8",
+                "ret",
+                initializer = sym __rsgdll_module_initializer,
+                entry = sym rsgdll_bridge_gmod13_open,
             );
         }
 

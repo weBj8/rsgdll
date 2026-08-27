@@ -52,9 +52,13 @@ return {
             end
         },
         {
-            name = "uses the real dedicated Source engine interface",
+            name = "matches the active server architecture",
             func = function()
-                expect(module.engine_is_dedicated()).to.beTrue()
+                if module.engine_is_dedicated then
+                    expect(module.engine_is_dedicated()).to.beTrue()
+                else
+                    expect(jit.arch).to.equal("x86")
+                end
             end
         },
         {

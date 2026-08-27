@@ -25,7 +25,26 @@ run_root="${RUNNER_TEMP:-/tmp}/rsgdll-e2e-$run_id"
 gluatest_dir="${GLUATEST_DIR:-$run_root/GLuaTest-$gluatest_ref}"
 stage_dir="$run_root/stage"
 artifact_dir="${E2E_ARTIFACT_DIR:-$repo_root/e2e-artifacts-$run_id}"
-gmod_branch="${GMOD_BRANCH:-x86-64}"
+target="${RSGDLL_E2E_TARGET:-x86_64-unknown-linux-gnu}"
+case "$target" in
+    i686-unknown-linux-gnu)
+        default_gmod_branch=public
+        module_suffix=linux
+        server_binary=srcds_linux
+        enabled_features='async, backtrace, serde'
+        ;;
+    x86_64-unknown-linux-gnu)
+        default_gmod_branch=x86-64
+        module_suffix=linux64
+        server_binary=bin/linux64/srcds
+        enabled_features='async, backtrace, engine, serde'
+        ;;
+    *)
+        printf 'unsupported E2E target: %s\n' "$target" >&2
+        exit 2
+        ;;
+esac
+gmod_branch="${GMOD_BRANCH:-$default_gmod_branch}"
 build_image="${RSGDLL_E2E_BUILD_IMAGE:-rust:1.97.1-bookworm}"
 expected_outcome="${RSGDLL_E2E_EXPECTED_OUTCOME:-PASS}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$run_root/cargo-target}"
@@ -88,20 +107,19 @@ source_tree_sha256="$(sha256sum "$artifact_dir/source-files.sha256" | cut -d' ' 
 
 if [[ "$expected_outcome" == SERVER_CRASH ]]; then
     export RSGDLL_E2E_CRASH_TEST=1
-    enabled_features='async, backtrace, engine, serde, crash-test'
+    enabled_features="$enabled_features, crash-test"
 else
     export RSGDLL_E2E_CRASH_TEST=0
-    enabled_features='async, backtrace, engine, serde'
 fi
 if ! bash "$repo_root/e2e/build-module.sh" "$stage_dir"; then
     printf 'E2E module build failed\n' >&2
     exit 1
 fi
 install -m755 \
-    "$stage_dir/garrysmod/lua/bin/gmsv_rsgdll_e2e_linux64.dll" \
+    "$stage_dir/garrysmod/lua/bin/gmsv_rsgdll_e2e_$module_suffix.dll" \
     "$artifact_dir/tested-module.dll" || exit 1
 install -m755 \
-    "$stage_dir/garrysmod/lua/bin/gmsv_rsgdll_example_linux64.dll" \
+    "$stage_dir/garrysmod/lua/bin/gmsv_rsgdll_example_$module_suffix.dll" \
     "$artifact_dir/tested-default-module.dll" || exit 1
 
 {
@@ -109,7 +127,7 @@ install -m755 \
     printf 'git tree state: %s\n' "$tree_state"
     printf 'source tree sha256: %s\n' "$source_tree_sha256"
     printf 'GMod branch: %s\n' "$gmod_branch"
-    printf 'target architecture: x86_64-unknown-linux-gnu\n'
+    printf 'target architecture: %s\n' "$target"
     printf 'enabled rsgdll features: %s\n' "$enabled_features"
     printf 'default consumer rsgdll features: none\n'
     printf 'expected outcome: %s\n' "$expected_outcome"
@@ -146,6 +164,8 @@ export GITHUB_TOKEN=
 export RSGDLL_E2E_ENTRYPOINT="$repo_root/e2e/runner-entrypoint.sh"
 export E2E_ARTIFACT_DIR="$artifact_dir"
 export RSGDLL_E2E_CONTAINER_NAME="gluatest_runner_$run_id"
+export RSGDLL_E2E_MODULE_SUFFIX="$module_suffix"
+export RSGDLL_E2E_SERVER_BINARY="/home/steam/gmodserver/$server_binary"
 
 compose=(
     docker compose
@@ -167,12 +187,12 @@ fi
 "${compose[@]}" logs --no-color runner \
     > "$artifact_dir/gluatest.log" 2>&1 || true
 docker cp \
-    "$RSGDLL_E2E_CONTAINER_NAME:/home/steam/gmodserver/garrysmod/lua/bin/gmsv_rsgdll_e2e_linux64.dll" \
+    "$RSGDLL_E2E_CONTAINER_NAME:/home/steam/gmodserver/garrysmod/lua/bin/gmsv_rsgdll_e2e_$module_suffix.dll" \
     "$artifact_dir/loaded-module.dll" || true
 docker cp \
-    "$RSGDLL_E2E_CONTAINER_NAME:/home/steam/gmodserver/garrysmod/lua/bin/gmsv_rsgdll_example_linux64.dll" \
+    "$RSGDLL_E2E_CONTAINER_NAME:/home/steam/gmodserver/garrysmod/lua/bin/gmsv_rsgdll_example_$module_suffix.dll" \
     "$artifact_dir/loaded-default-module.dll" || true
-docker cp "$RSGDLL_E2E_CONTAINER_NAME:/home/steam/gmodserver/bin/linux64/srcds" \
+docker cp "$RSGDLL_E2E_CONTAINER_NAME:/home/steam/gmodserver/$server_binary" \
     "$artifact_dir/tested-srcds" || true
 if [[ -s "$artifact_dir/core-path.txt" ]]; then
     core_path="$(<"$artifact_dir/core-path.txt")"
