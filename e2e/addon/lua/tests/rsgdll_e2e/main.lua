@@ -68,6 +68,24 @@ return {
             end
         },
         {
+            name = "round trips every integer type",
+            func = function()
+                local u8Value, u16Value, u32Value, u64Value =
+                    module.unsigned_integer_round_trip(255, 65535, 4294967295, 9007199254740992)
+                local i8Value, i16Value, i32Value, i64Value =
+                    module.signed_integer_round_trip(-128, -32768, -2147483648, -9007199254740992)
+
+                expect(u8Value).to.equal(255)
+                expect(u16Value).to.equal(65535)
+                expect(u32Value).to.equal(4294967295)
+                expect(u64Value).to.equal(9007199254740992)
+                expect(i8Value).to.equal(-128)
+                expect(i16Value).to.equal(-32768)
+                expect(i32Value).to.equal(-2147483648)
+                expect(i64Value).to.equal(-9007199254740992)
+            end
+        },
+        {
             name = "converts primitive returns",
             func = function()
                 local text, number, flag = module.primitives()

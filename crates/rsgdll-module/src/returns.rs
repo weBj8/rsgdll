@@ -160,14 +160,26 @@ impl IntoLuaReturn for f64 {
     }
 }
 
-impl IntoLuaReturn for u64 {
-    fn into_lua_return(self, writer: &mut ReturnWriter<'_>) -> Result<(), ReturnError> {
-        if self > MAX_EXACT_LUA_INTEGER {
-            return Err(ReturnError::IntegerNotExactlyRepresentable);
-        }
-        (self as f64).into_lua_return(writer)
-    }
+macro_rules! impl_integer_returns {
+    ($($integer:ty),+ $(,)?) => {
+        $(
+            impl IntoLuaReturn for $integer {
+                fn into_lua_return(
+                    self,
+                    writer: &mut ReturnWriter<'_>,
+                ) -> Result<(), ReturnError> {
+                    let value = self as f64;
+                    if value.abs() > MAX_EXACT_LUA_INTEGER as f64 || value as Self != self {
+                        return Err(ReturnError::IntegerNotExactlyRepresentable);
+                    }
+                    value.into_lua_return(writer)
+                }
+            }
+        )+
+    };
 }
+
+impl_integer_returns!(u8, u16, u32, u64, i8, i16, i32, i64);
 
 impl IntoLuaReturn for String {
     fn into_lua_return(self, writer: &mut ReturnWriter<'_>) -> Result<(), ReturnError> {

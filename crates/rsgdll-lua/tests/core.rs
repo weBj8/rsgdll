@@ -52,18 +52,87 @@ fn conversion_reports_expected_and_actual_types() {
 }
 
 #[test]
-fn u64_conversion_accepts_only_exact_nonnegative_lua_integers() {
-    let mut valid = Fixture::new(vec![Value::Number(42.0)], vec![]);
+fn integer_conversions_validate_lua_numbers_and_rust_ranges() {
+    let mut valid = Fixture::new(
+        vec![
+            Value::Number(255.0),
+            Value::Number(65_535.0),
+            Value::Number(4_294_967_295.0),
+            Value::Number(9_007_199_254_740_992.0),
+            Value::Number(-128.0),
+            Value::Number(-32_768.0),
+            Value::Number(-2_147_483_648.0),
+            Value::Number(-9_007_199_254_740_992.0),
+        ],
+        vec![],
+    );
     // SAFETY: fixture owns a live state and matching fake vtable for this test.
     let lua = unsafe { Lua::from_raw(valid.state()) }.expect("valid fixture");
-    assert_eq!(u64::from_lua(&lua, 1).expect("exact integer"), 42);
-
-    let mut fractional = Fixture::new(vec![Value::Number(1.5)], vec![]);
-    // SAFETY: fixture owns a live state and matching fake vtable for this test.
-    let lua = unsafe { Lua::from_raw(fractional.state()) }.expect("valid fixture");
+    assert_eq!(u8::from_lua(&lua, 1).expect("u8"), u8::MAX);
+    assert_eq!(u16::from_lua(&lua, 2).expect("u16"), u16::MAX);
+    assert_eq!(u32::from_lua(&lua, 3).expect("u32"), u32::MAX);
     assert_eq!(
-        u64::from_lua(&lua, 1).expect_err("fractional number"),
-        LuaError::IntegerOutOfRange
+        u64::from_lua(&lua, 4).expect("largest exact u64"),
+        1_u64 << 53
+    );
+    assert_eq!(i8::from_lua(&lua, 5).expect("i8"), i8::MIN);
+    assert_eq!(i16::from_lua(&lua, 6).expect("i16"), i16::MIN);
+    assert_eq!(i32::from_lua(&lua, 7).expect("i32"), i32::MIN);
+    assert_eq!(
+        i64::from_lua(&lua, 8).expect("smallest exact i64"),
+        -(1_i64 << 53)
+    );
+
+    let mut invalid = Fixture::new(
+        vec![
+            Value::Number(256.0),
+            Value::Number(-129.0),
+            Value::Number(1.5),
+            Value::Number(f64::INFINITY),
+        ],
+        vec![],
+    );
+    // SAFETY: fixture owns a live state and matching fake vtable for this test.
+    let lua = unsafe { Lua::from_raw(invalid.state()) }.expect("valid fixture");
+    assert_eq!(u8::from_lua(&lua, 1), Err(LuaError::IntegerOutOfRange));
+    assert_eq!(i8::from_lua(&lua, 2), Err(LuaError::IntegerOutOfRange));
+    assert_eq!(u32::from_lua(&lua, 3), Err(LuaError::IntegerOutOfRange));
+    assert_eq!(i64::from_lua(&lua, 4), Err(LuaError::IntegerOutOfRange));
+}
+
+#[test]
+fn rust_integers_push_as_exact_lua_numbers() {
+    let mut fixture = Fixture::new(vec![], vec![]);
+    // SAFETY: fixture owns a live state and matching fake vtable for this test.
+    let mut lua = unsafe { Lua::from_raw(fixture.state()) }.expect("valid fixture");
+    let mut stack = lua.stack();
+    let mut frame = stack.frame();
+
+    frame.push(u8::MAX).expect("u8");
+    frame.push(u16::MAX).expect("u16");
+    frame.push(u32::MAX).expect("u32");
+    frame.push(1_u64 << 53).expect("largest exact u64");
+    frame.push(i8::MIN).expect("i8");
+    frame.push(i16::MIN).expect("i16");
+    frame.push(i32::MIN).expect("i32");
+    frame.push(-(1_i64 << 53)).expect("smallest exact i64");
+
+    assert_eq!(frame.get::<u8>(-8).expect("u8"), u8::MAX);
+    assert_eq!(frame.get::<u16>(-7).expect("u16"), u16::MAX);
+    assert_eq!(frame.get::<u32>(-6).expect("u32"), u32::MAX);
+    assert_eq!(frame.get::<u64>(-5).expect("u64"), 1_u64 << 53);
+    assert_eq!(frame.get::<i8>(-4).expect("i8"), i8::MIN);
+    assert_eq!(frame.get::<i16>(-3).expect("i16"), i16::MIN);
+    assert_eq!(frame.get::<i32>(-2).expect("i32"), i32::MIN);
+    assert_eq!(frame.get::<i64>(-1).expect("i64"), -(1_i64 << 53));
+
+    assert_eq!(
+        frame.push((1_u64 << 53) + 1),
+        Err(LuaError::IntegerOutOfRange)
+    );
+    assert_eq!(
+        frame.push(-(1_i64 << 53) - 1),
+        Err(LuaError::IntegerOutOfRange)
     );
 }
 

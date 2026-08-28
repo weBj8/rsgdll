@@ -36,20 +36,6 @@ impl FromLua for f64 {
     }
 }
 
-impl FromLua for u64 {
-    fn from_lua(lua: &Lua<'_>, index: i32) -> LuaResult<Self> {
-        let value = f64::from_lua(lua, index)?;
-        if value.is_finite()
-            && value.fract() == 0.0
-            && (0.0..=MAX_EXACT_LUA_INTEGER).contains(&value)
-        {
-            Ok(value as u64)
-        } else {
-            Err(LuaError::IntegerOutOfRange)
-        }
-    }
-}
-
 impl FromLua for String {
     fn from_lua(lua: &Lua<'_>, index: i32) -> LuaResult<Self> {
         let bytes = string_bytes(lua, index)?;
@@ -81,6 +67,41 @@ impl IntoLua for f64 {
         protected::push_number(lua.context(), self)
     }
 }
+
+macro_rules! impl_integer_conversions {
+    ($($integer:ty),+ $(,)?) => {
+        $(
+            impl FromLua for $integer {
+                fn from_lua(lua: &Lua<'_>, index: i32) -> LuaResult<Self> {
+                    let value = f64::from_lua(lua, index)?;
+                    if value.fract() == 0.0
+                        && (-MAX_EXACT_LUA_INTEGER..=MAX_EXACT_LUA_INTEGER).contains(&value)
+                        && (<$integer>::MIN as f64..=<$integer>::MAX as f64).contains(&value)
+                    {
+                        Ok(value as Self)
+                    } else {
+                        Err(LuaError::IntegerOutOfRange)
+                    }
+                }
+            }
+
+            impl IntoLua for $integer {
+                fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {
+                    let value = self as f64;
+                    if (-MAX_EXACT_LUA_INTEGER..=MAX_EXACT_LUA_INTEGER).contains(&value)
+                        && value as Self == self
+                    {
+                        value.into_lua(lua)
+                    } else {
+                        Err(LuaError::IntegerOutOfRange)
+                    }
+                }
+            }
+        )+
+    };
+}
+
+impl_integer_conversions!(u8, u16, u32, u64, i8, i16, i32, i64);
 
 impl IntoLua for () {
     fn into_lua(self, lua: &mut Lua<'_>) -> LuaResult<()> {

@@ -15,6 +15,8 @@ fn module(module: &mut ModuleBuilder) {
     module
         .function("plain", plain)
         .function("add", add)
+        .function("unsigned_integer_round_trip", unsigned_integer_round_trip)
+        .function("signed_integer_round_trip", signed_integer_round_trip)
         .function("primitives", primitives)
         .function("result_ok", result_ok)
         .function("result_err", result_err)
@@ -57,6 +59,26 @@ fn engine_is_dedicated(main_thread: &mut MainThread) -> Result<bool, rsgdll::eng
 #[rsgdll::function]
 fn add(left: u64, right: u64) -> u64 {
     left + right
+}
+
+#[rsgdll::function]
+fn unsigned_integer_round_trip(
+    u8_value: u8,
+    u16_value: u16,
+    u32_value: u32,
+    u64_value: u64,
+) -> (u8, u16, u32, u64) {
+    (u8_value, u16_value, u32_value, u64_value)
+}
+
+#[rsgdll::function]
+fn signed_integer_round_trip(
+    i8_value: i8,
+    i16_value: i16,
+    i32_value: i32,
+    i64_value: i64,
+) -> (i8, i16, i32, i64) {
+    (i8_value, i16_value, i32_value, i64_value)
 }
 
 #[rsgdll::function]
