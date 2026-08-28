@@ -3,25 +3,22 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use std::error::Error;
-use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use std::ffi::{CStr, CString, c_void};
 use std::fmt;
-use std::path::Path;
 use std::ptr::NonNull;
 
 use rsgdll_engine_sys::{
-    CREATE_INTERFACE_SYMBOL, CreateInterfaceFn, ENGINE_LIBRARY, IFACE_FAILED, IFACE_OK,
+    CREATE_INTERFACE_SYMBOL, CreateInterfaceFn, ENGINE_LIBRARIES, IFACE_FAILED, IFACE_OK,
 };
 
-const RTLD_NOW: c_int = 2;
-const RTLD_NOLOAD: c_int = 4;
+#[cfg(target_os = "linux")]
+#[path = "loader/linux.rs"]
+mod platform;
+#[cfg(target_os = "windows")]
+#[path = "loader/windows.rs"]
+mod platform;
 
-#[link(name = "dl")]
-unsafe extern "C" {
-    fn dlopen(path: *const c_char, flags: c_int) -> *mut c_void;
-    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
-    fn dlclose(handle: *mut c_void) -> c_int;
-    fn dlerror() -> *const c_char;
-}
+use platform::LoadedModule;
 
 #[derive(Clone, Copy)]
 struct InterfaceFactory(CreateInterfaceFn);
@@ -73,56 +70,51 @@ impl fmt::Display for InterfaceError {
 impl Error for InterfaceError {}
 
 pub(crate) struct EngineLibrary {
-    handle: NonNull<c_void>,
+    _module: LoadedModule,
     factory: InterfaceFactory,
 }
 
 impl EngineLibrary {
-    /// Loads the Linux dedicated-server engine library.
+    /// Attaches to the dedicated-server engine library.
     ///
     /// # Safety
     ///
-    /// Loading a shared object executes its initializers. The process must be a
-    /// compatible Source dedicated server with its trusted engine binary
-    /// already loaded.
+    /// The process must be a compatible Source dedicated server with its
+    /// trusted engine binary already loaded.
     pub(crate) unsafe fn open_engine() -> Result<Self, LibraryError> {
-        let path = loaded_library_path(ENGINE_LIBRARY)?;
-        // SAFETY: the caller accepts the loading and ABI requirements above.
-        unsafe { Self::open(&path) }
+        let mut last_error = None;
+        for library in ENGINE_LIBRARIES {
+            // SAFETY: the caller accepts the loading and ABI requirements above.
+            match unsafe { Self::open(library) } {
+                Ok(engine) => return Ok(engine),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            LibraryError::new(
+                "load Source library",
+                "no engine library names configured".into(),
+            )
+        }))
     }
 
     /// Attaches to a loaded Source library and resolves `CreateInterface`.
     ///
     /// # Safety
     ///
-    /// `path` must identify an already-loaded trusted library compatible with
-    /// the pinned Source factory ABI.
-    unsafe fn open(path: &CStr) -> Result<Self, LibraryError> {
-        // SAFETY: `RTLD_NOLOAD` prevents loading a new object or running its
-        // constructors; `path` is NUL-terminated and valid for the call.
-        let handle = NonNull::new(unsafe { dlopen(path.as_ptr(), RTLD_NOW | RTLD_NOLOAD) })
-            .ok_or_else(|| LibraryError::new("load Source library", loader_error()))?;
-
-        // SAFETY: POSIX specifies a null `dlerror` call clears prior state.
-        unsafe { dlerror() };
-        // SAFETY: `handle` is live and the symbol name is NUL-terminated.
-        let symbol =
-            NonNull::new(unsafe { dlsym(handle.as_ptr(), CREATE_INTERFACE_SYMBOL.as_ptr()) });
-        let Some(symbol) = symbol else {
-            let error = LibraryError::new("resolve CreateInterface", loader_error());
-            // SAFETY: `handle` was returned by `dlopen` and remains open.
-            unsafe { dlclose(handle.as_ptr()) };
-            return Err(error);
-        };
-        // SAFETY: POSIX permits converting a `dlsym` result to the matching
-        // function-pointer type; the caller guarantees the Source ABI.
+    /// `library` must identify an already-loaded trusted library compatible
+    /// with the pinned Source factory ABI.
+    unsafe fn open(library: &CStr) -> Result<Self, LibraryError> {
+        let module = LoadedModule::open(library)?;
+        let symbol = module.symbol(CREATE_INTERFACE_SYMBOL)?;
+        // SAFETY: the platform loader returns the named C export, and the
+        // caller guarantees the Source factory ABI.
         let factory =
             unsafe { std::mem::transmute::<*mut c_void, CreateInterfaceFn>(symbol.as_ptr()) };
 
         Ok(Self {
-            handle,
-            // SAFETY: the symbol is owned by `handle`, which this value keeps
-            // open until after its final factory use.
+            _module: module,
+            // SAFETY: the module remains live until after the final factory use.
             factory: unsafe { InterfaceFactory::from_raw(factory) },
         })
     }
@@ -132,62 +124,25 @@ impl EngineLibrary {
     }
 }
 
-impl Drop for EngineLibrary {
-    fn drop(&mut self) {
-        // SAFETY: this handle came from `dlopen` and is closed exactly once.
-        unsafe { dlclose(self.handle.as_ptr()) };
-    }
-}
-
 /// Resolves one C-exported symbol already loaded into the current process.
 ///
 /// # Safety
 ///
 /// Caller must convert the result only to the symbol's exact ABI type.
 pub(crate) unsafe fn process_symbol(
-    library: &CStr,
+    libraries: &[&CStr],
     symbol: &CStr,
 ) -> Result<NonNull<c_void>, LibraryError> {
-    let path = loaded_library_path(library)?;
-    // SAFETY: `RTLD_NOLOAD` only acquires a handle to the already-mapped
-    // trusted Source library identified above.
-    let handle = NonNull::new(unsafe { dlopen(path.as_ptr(), RTLD_NOW | RTLD_NOLOAD) })
-        .ok_or_else(|| LibraryError::new("load Source library", loader_error()))?;
-    // SAFETY: POSIX specifies a null `dlerror` call clears prior state.
-    unsafe { dlerror() };
-    // SAFETY: `handle` is live and `symbol` is NUL-terminated.
-    let resolved = NonNull::new(unsafe { dlsym(handle.as_ptr(), symbol.as_ptr()) });
-    let error = resolved.is_none().then(loader_error);
-    // SAFETY: this releases only our `RTLD_NOLOAD` reference; Source retains
-    // the original mapping for the process lifetime.
-    unsafe { dlclose(handle.as_ptr()) };
-    resolved.ok_or_else(|| LibraryError::new("resolve Source symbol", error.unwrap_or_default()))
-}
-
-fn loaded_library_path(library: &CStr) -> Result<CString, LibraryError> {
-    let maps = std::fs::read_to_string("/proc/self/maps")
-        .map_err(|error| LibraryError::new("inspect loaded Source libraries", error.to_string()))?;
-    let library_name = library.to_string_lossy();
-    let path = maps
-        .lines()
-        .filter_map(|line| line.split_ascii_whitespace().last())
-        .find(|path| {
-            Path::new(path)
-                .file_name()
-                .is_some_and(|name| name == library_name.as_ref())
-        })
-        .ok_or_else(|| {
-            LibraryError::new(
-                "locate loaded Source library",
-                format!("{library_name} is not mapped into this process"),
-            )
-        })?;
-    CString::new(path).map_err(|_| {
-        LibraryError::new(
-            "locate loaded Source library",
-            "mapped library path contains a NUL byte".to_owned(),
-        )
-    })
+    let mut last_error = None;
+    for library in libraries {
+        match LoadedModule::open(library) {
+            Ok(module) => return module.symbol(symbol),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        LibraryError::new("load Source library", "no library names configured".into())
+    }))
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -197,7 +152,7 @@ pub(crate) struct LibraryError {
 }
 
 impl LibraryError {
-    fn new(operation: &'static str, detail: String) -> Self {
+    pub(super) fn new(operation: &'static str, detail: String) -> Self {
         Self { operation, detail }
     }
 }
@@ -210,22 +165,10 @@ impl fmt::Display for LibraryError {
 
 impl Error for LibraryError {}
 
-fn loader_error() -> String {
-    // SAFETY: `dlerror` returns either null or a NUL-terminated thread-local
-    // message valid until the next dynamic-loader call on this thread.
-    let message = unsafe { dlerror() };
-    if message.is_null() {
-        "unknown dynamic loader error".to_owned()
-    } else {
-        // SAFETY: non-null `dlerror` results are NUL-terminated strings.
-        unsafe { CStr::from_ptr(message) }
-            .to_string_lossy()
-            .into_owned()
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::ffi::{c_char, c_int};
+
     use super::*;
 
     static VALUE: u8 = 7;

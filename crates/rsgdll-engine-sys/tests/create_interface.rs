@@ -1,7 +1,7 @@
 use std::ffi::{c_char, c_int, c_void};
 
 use rsgdll_engine_sys::{
-    CREATE_INTERFACE_SYMBOL, CreateInterfaceFn, ENGINE_LIBRARY, IFACE_FAILED, IFACE_OK,
+    CREATE_INTERFACE_SYMBOL, CreateInterfaceFn, ENGINE_LIBRARIES, IFACE_FAILED, IFACE_OK,
     RawEngineServer, RawEngineServerVTable, UnusedEngineMethod, VENGINE_SERVER_VERSION,
 };
 
@@ -20,7 +20,10 @@ fn source_factory_abi_matches_pinned_header() {
         CREATE_INTERFACE_SYMBOL.to_bytes_with_nul(),
         b"CreateInterface\0"
     );
-    assert_eq!(ENGINE_LIBRARY.to_bytes_with_nul(), b"engine.so\0");
+    #[cfg(target_arch = "x86")]
+    assert_eq!(ENGINE_LIBRARIES[0], c"engine_srv.so");
+    #[cfg(target_arch = "x86_64")]
+    assert_eq!(ENGINE_LIBRARIES[0], c"engine.so");
     assert_eq!(IFACE_OK, 0);
     assert_eq!(IFACE_FAILED, 1);
     assert_eq!(
@@ -29,24 +32,34 @@ fn source_factory_abi_matches_pinned_header() {
     );
 }
 
-unsafe extern "C" fn change_level(
-    _this: *mut RawEngineServer,
-    _level: *const c_char,
-    _landmark: *const c_char,
-) {
+macro_rules! engine_methods {
+    ($(fn $name:ident($($argument:tt: $argument_type:ty),* $(,)?) $(-> $return_type:ty)? $body:block)+) => {
+        $(
+            #[cfg(all(target_os = "windows", target_arch = "x86"))]
+            unsafe extern "thiscall" fn $name(
+                $($argument: $argument_type),*
+            ) $(-> $return_type)? $body
+
+            #[cfg(not(all(target_os = "windows", target_arch = "x86")))]
+            unsafe extern "C" fn $name(
+                $($argument: $argument_type),*
+            ) $(-> $return_type)? $body
+        )+
+    };
 }
 
-unsafe extern "C" fn is_map_valid(_this: *mut RawEngineServer, _name: *const c_char) -> c_int {
-    1
-}
-
-unsafe extern "C" fn is_dedicated_server(_this: *mut RawEngineServer) -> bool {
-    true
+engine_methods! {
+    fn change_level(
+        _this: *mut RawEngineServer,
+        _level: *const c_char,
+        _landmark: *const c_char,
+    ) {}
+    fn is_map_valid(_this: *mut RawEngineServer, _name: *const c_char) -> c_int { 1 }
+    fn is_dedicated_server(_this: *mut RawEngineServer) -> bool { true }
+    fn server_command(_this: *mut RawEngineServer, _command: *const c_char) {}
 }
 
 unsafe extern "C" fn unused_engine_method() {}
-
-unsafe extern "C" fn server_command(_this: *mut RawEngineServer, _command: *const c_char) {}
 
 #[test]
 fn engine_server_vtable_prefix_matches_pinned_interface() {
@@ -57,12 +70,8 @@ fn engine_server_vtable_prefix_matches_pinned_interface() {
         before_server_command: [unused_engine_method as UnusedEngineMethod; 33],
         server_command,
     };
-    assert!(std::ptr::fn_addr_eq(
-        vtable.is_dedicated_server,
-        is_dedicated_server as unsafe extern "C" fn(*mut RawEngineServer) -> bool
-    ));
-    assert!(std::ptr::fn_addr_eq(
-        vtable.server_command,
-        server_command as unsafe extern "C" fn(*mut RawEngineServer, *const c_char)
-    ));
+    assert_eq!(
+        std::mem::size_of_val(&vtable),
+        37 * std::mem::size_of::<*const ()>()
+    );
 }

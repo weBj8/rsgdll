@@ -4,8 +4,13 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-compile_error!("rsgdll-engine-sys has only reviewed Source ABI definitions for Linux x86_64");
+#[cfg(not(any(
+    all(target_os = "linux", target_env = "gnu", target_arch = "x86"),
+    all(target_os = "linux", target_env = "gnu", target_arch = "x86_64"),
+    all(target_os = "windows", target_env = "msvc", target_arch = "x86"),
+    all(target_os = "windows", target_env = "msvc", target_arch = "x86_64"),
+)))]
+compile_error!("rsgdll-engine-sys supports only GNU Linux and MSVC Windows on x86 or x86_64");
 
 use std::ffi::{CStr, c_char, c_int, c_void};
 
@@ -22,11 +27,25 @@ pub const IFACE_FAILED: c_int = 1;
 /// Export name used by Source interface factories.
 pub const CREATE_INTERFACE_SYMBOL: &CStr = c"CreateInterface";
 
-/// Linux dedicated-server engine library.
-pub const ENGINE_LIBRARY: &CStr = c"engine.so";
+/// Engine library candidates used by GMod client and dedicated-server builds.
+#[cfg(all(target_os = "linux", target_arch = "x86"))]
+pub const ENGINE_LIBRARIES: &[&CStr] = &[c"engine_srv.so", c"engine.so"];
+/// Engine library candidates used by GMod client and dedicated-server builds.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub const ENGINE_LIBRARIES: &[&CStr] = &[c"engine.so", c"engine_srv.so"];
+/// Engine library candidates used by GMod client and dedicated-server builds.
+#[cfg(target_os = "windows")]
+pub const ENGINE_LIBRARIES: &[&CStr] = &[c"engine.dll", c"engine_srv.dll"];
 
-/// Linux Source tier-zero runtime library.
-pub const TIER0_LIBRARY: &CStr = c"libtier0.so";
+/// Tier-zero library candidates used by GMod client and dedicated-server builds.
+#[cfg(all(target_os = "linux", target_arch = "x86"))]
+pub const TIER0_LIBRARIES: &[&CStr] = &[c"libtier0_srv.so", c"libtier0.so"];
+/// Tier-zero library candidates used by GMod client and dedicated-server builds.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub const TIER0_LIBRARIES: &[&CStr] = &[c"libtier0.so", c"libtier0_srv.so"];
+/// Tier-zero library candidates used by GMod client and dedicated-server builds.
+#[cfg(target_os = "windows")]
+pub const TIER0_LIBRARIES: &[&CStr] = &[c"tier0.dll", c"tier0_s.dll"];
 
 /// Pinned dedicated-server engine interface version.
 pub const VENGINE_SERVER_VERSION: &CStr = c"VEngineServer021";
@@ -36,6 +55,34 @@ pub const REGISTER_LOGGING_LISTENER_SYMBOL: &CStr = c"LoggingSystem_RegisterLogg
 
 /// Exported tier0 logging-listener removal symbol.
 pub const UNREGISTER_LOGGING_LISTENER_SYMBOL: &CStr = c"LoggingSystem_UnregisterLoggingListener";
+
+#[cfg(all(target_os = "windows", target_arch = "x86"))]
+macro_rules! engine_method_fn {
+    (($($argument:ty),* $(,)?) -> $return_type:ty) => {
+        unsafe extern "thiscall" fn($($argument),*) -> $return_type
+    };
+}
+
+#[cfg(not(all(target_os = "windows", target_arch = "x86")))]
+macro_rules! engine_method_fn {
+    (($($argument:ty),* $(,)?) -> $return_type:ty) => {
+        unsafe extern "C" fn($($argument),*) -> $return_type
+    };
+}
+
+type ChangeLevelFn = engine_method_fn!((
+    *mut RawEngineServer,
+    *const c_char,
+    *const c_char,
+) -> ());
+type IsMapValidFn = engine_method_fn!((*mut RawEngineServer, *const c_char) -> c_int);
+type IsDedicatedServerFn = engine_method_fn!((*mut RawEngineServer) -> bool);
+type ServerCommandFn = engine_method_fn!((*mut RawEngineServer, *const c_char) -> ());
+type LoggingListenerLogFn = engine_method_fn!((
+    *mut RawLoggingListener,
+    *const RawLoggingContext,
+    *const c_char,
+) -> ());
 
 /// Raw `IVEngineServer` object.
 #[repr(C)]
@@ -48,20 +95,15 @@ pub struct RawEngineServer {
 #[repr(C)]
 pub struct RawEngineServerVTable {
     /// `IVEngineServer::ChangeLevel`.
-    pub change_level: unsafe extern "C" fn(
-        this: *mut RawEngineServer,
-        level: *const c_char,
-        landmark: *const c_char,
-    ),
+    pub change_level: ChangeLevelFn,
     /// `IVEngineServer::IsMapValid`.
-    pub is_map_valid:
-        unsafe extern "C" fn(this: *mut RawEngineServer, name: *const c_char) -> c_int,
+    pub is_map_valid: IsMapValidFn,
     /// `IVEngineServer::IsDedicatedServer`.
-    pub is_dedicated_server: unsafe extern "C" fn(this: *mut RawEngineServer) -> bool,
+    pub is_dedicated_server: IsDedicatedServerFn,
     /// Slots 3 through 35, pinned but intentionally not exposed.
     pub before_server_command: [UnusedEngineMethod; 33],
     /// `IVEngineServer::ServerCommand`.
-    pub server_command: unsafe extern "C" fn(this: *mut RawEngineServer, command: *const c_char),
+    pub server_command: ServerCommandFn,
 }
 
 /// An unexposed `IVEngineServer021` vtable slot.
@@ -98,11 +140,7 @@ pub struct RawLoggingListener {
 /// Pinned single-method `ILoggingListener` vtable.
 #[repr(C)]
 pub struct RawLoggingListenerVTable {
-    pub log: unsafe extern "C" fn(
-        this: *mut RawLoggingListener,
-        context: *const RawLoggingContext,
-        message: *const c_char,
-    ),
+    pub log: LoggingListenerLogFn,
 }
 
 pub type RegisterLoggingListenerFn = unsafe extern "C" fn(listener: *mut RawLoggingListener);

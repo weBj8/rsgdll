@@ -180,6 +180,9 @@ fn is_dedicated(main_thread: &mut MainThread) -> Result<bool, rsgdll::engine::En
 }
 ```
 
+`engine` builds for Linux and MSVC Windows on x86 and x86-64. Runtime
+verification remains target-specific; see [`docs/targets.md`](docs/targets.md).
+
 ## Stage a module
 
 ```text

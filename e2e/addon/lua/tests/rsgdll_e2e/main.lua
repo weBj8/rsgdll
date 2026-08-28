@@ -52,13 +52,10 @@ return {
             end
         },
         {
-            name = "matches the active server architecture",
+            name = "attaches to the active Source engine",
             func = function()
-                if module.engine_is_dedicated then
-                    expect(module.engine_is_dedicated()).to.beTrue()
-                else
-                    expect(jit.arch).to.equal("x86")
-                end
+                expect(module.engine_is_dedicated).to.beA("function")
+                expect(module.engine_is_dedicated()).to.beTrue()
             end
         },
         {

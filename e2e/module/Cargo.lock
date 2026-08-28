@@ -137,6 +137,7 @@ version = "0.1.0"
 dependencies = [
  "rsgdll-bridge",
  "rsgdll-platform",
+ "rsgdll-runtime",
  "serde",
  "serde_json",
 ]

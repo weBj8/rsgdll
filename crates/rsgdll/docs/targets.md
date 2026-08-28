@@ -21,9 +21,10 @@ rsgdll uses three independent support claims:
 Other targets are unsupported. The platform crate fails compilation rather
 than selecting an ABI outside the pinned upstream header.
 
-This matrix covers the default facade. Optional `engine`, `detour`, `hook`,
-and `full` features remain Linux x86_64-only; enabling them does not inherit
-the broader core target matrix.
+The optional `engine` feature is build-supported on all four targets and uses
+the selected target's C++ calling convention and loaded-library API. Its real
+GMod runtime gate currently covers Linux x86_64. Optional `detour`, `hook`,
+and therefore `full` retain their narrower support independently.
 
 The xtask knows GMod's server/client filenames for Linux x86, Linux x86_64,
 Windows x86, and Windows x86_64. Filename generation is packaging support,

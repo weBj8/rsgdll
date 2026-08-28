@@ -19,7 +19,7 @@ pub use rsgdll_engine_sys::LoggingSeverity;
 use rsgdll_engine_sys::{
     LOGGING_DO_NOT_ECHO, REGISTER_LOGGING_LISTENER_SYMBOL, RawEngineServer, RawEngineServerVTable,
     RawLoggingContext, RawLoggingListener, RawLoggingListenerVTable, RegisterLoggingListenerFn,
-    TIER0_LIBRARY, VENGINE_SERVER_VERSION,
+    TIER0_LIBRARIES, VENGINE_SERVER_VERSION,
 };
 use rsgdll_runtime::MainThread;
 
@@ -155,11 +155,11 @@ impl LoggingListenerGuard {
         _main_thread: &mut MainThread,
         callback: impl Fn(EngineLogMessage) + Send + Sync + 'static,
     ) -> Result<Self, EngineError> {
-        // SAFETY: names and function signatures are pinned to GMod x86-64
-        // tier0 exports documented in `engine-abi-reference.md`.
+        // SAFETY: names and C function signatures are pinned to the selected
+        // GMod tier0 exports documented in `engine-abi-reference.md`.
         let register = unsafe {
             std::mem::transmute::<*mut std::ffi::c_void, RegisterLoggingListenerFn>(
-                process_symbol(TIER0_LIBRARY, REGISTER_LOGGING_LISTENER_SYMBOL)
+                process_symbol(TIER0_LIBRARIES, REGISTER_LOGGING_LISTENER_SYMBOL)
                     .map_err(EngineError::library)?
                     .as_ptr(),
             )
@@ -207,7 +207,25 @@ impl Drop for LoggingListenerGuard {
     }
 }
 
+#[cfg(all(target_os = "windows", target_arch = "x86"))]
+unsafe extern "thiscall" fn listener_log(
+    listener: *mut RawLoggingListener,
+    context: *const RawLoggingContext,
+    message: *const std::ffi::c_char,
+) {
+    listener_log_impl(listener, context, message);
+}
+
+#[cfg(not(all(target_os = "windows", target_arch = "x86")))]
 unsafe extern "C" fn listener_log(
+    listener: *mut RawLoggingListener,
+    context: *const RawLoggingContext,
+    message: *const std::ffi::c_char,
+) {
+    listener_log_impl(listener, context, message);
+}
+
+fn listener_log_impl(
     listener: *mut RawLoggingListener,
     context: *const RawLoggingContext,
     message: *const std::ffi::c_char,
@@ -337,28 +355,38 @@ mod tests {
 
     static COMMAND_CALLS: AtomicUsize = AtomicUsize::new(0);
 
-    unsafe extern "C" fn change_level(
-        _this: *mut RawEngineServer,
-        _map: *const c_char,
-        _landmark: *const c_char,
-    ) {
+    macro_rules! engine_methods {
+        ($(fn $name:ident($($argument:tt: $argument_type:ty),* $(,)?) $(-> $return_type:ty)? $body:block)+) => {
+            $(
+                #[cfg(all(target_os = "windows", target_arch = "x86"))]
+                unsafe extern "thiscall" fn $name(
+                    $($argument: $argument_type),*
+                ) $(-> $return_type)? $body
+
+                #[cfg(not(all(target_os = "windows", target_arch = "x86")))]
+                unsafe extern "C" fn $name(
+                    $($argument: $argument_type),*
+                ) $(-> $return_type)? $body
+            )+
+        };
     }
 
-    unsafe extern "C" fn is_map_valid(_this: *mut RawEngineServer, _name: *const c_char) -> c_int {
-        1
-    }
-
-    unsafe extern "C" fn is_dedicated_server(_this: *mut RawEngineServer) -> bool {
-        true
+    engine_methods! {
+        fn change_level(
+            _this: *mut RawEngineServer,
+            _map: *const c_char,
+            _landmark: *const c_char,
+        ) {}
+        fn is_map_valid(_this: *mut RawEngineServer, _name: *const c_char) -> c_int { 1 }
+        fn is_dedicated_server(_this: *mut RawEngineServer) -> bool { true }
+        fn server_command(_this: *mut RawEngineServer, command: *const c_char) {
+            // SAFETY: the checked wrapper passes a live NUL-terminated command.
+            assert_eq!(unsafe { CStr::from_ptr(command) }, c"status\n");
+            COMMAND_CALLS.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     unsafe extern "C" fn unused_engine_method() {}
-
-    unsafe extern "C" fn server_command(_this: *mut RawEngineServer, command: *const c_char) {
-        // SAFETY: the checked wrapper passes a live NUL-terminated command.
-        assert_eq!(unsafe { CStr::from_ptr(command) }, c"status\n");
-        COMMAND_CALLS.fetch_add(1, Ordering::Relaxed);
-    }
 
     #[test]
     fn server_command_uses_pinned_engine_slot() {

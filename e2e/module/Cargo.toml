@@ -12,11 +12,8 @@ crash-test = []
 crate-type = ["cdylib"]
 
 [dependencies]
-rsgdll = { path = "../../crates/rsgdll", features = ["async", "backtrace", "debug", "serde"] }
+rsgdll = { path = "../../crates/rsgdll", features = ["async", "backtrace", "debug", "engine", "serde"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-
-[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
-rsgdll = { path = "../../crates/rsgdll", features = ["engine"] }
 
 [workspace]

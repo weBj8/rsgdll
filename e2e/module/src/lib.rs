@@ -49,7 +49,6 @@ fn module(module: &mut ModuleBuilder) {
         .function("debug_attach", debug_attach)
         .function("debug_detach", debug_detach)
         .function("debug_observation", debug_observation);
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     module.function("engine_is_dedicated", engine_is_dedicated);
     #[cfg(feature = "crash-test")]
     module.function("native_crash", native_crash);
@@ -60,7 +59,6 @@ fn plain() -> &'static str {
     "plain Rust call"
 }
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[rsgdll::function]
 fn engine_is_dedicated(main_thread: &mut MainThread) -> Result<bool, rsgdll::engine::EngineError> {
     let engine = rsgdll::engine::Engine::attach(main_thread)?;
@@ -172,9 +170,7 @@ fn plus_one(value: f64) -> f64 {
 }
 
 #[rsgdll::function]
-fn export_plus_one(
-    frame: &mut StackFrame<'_, '_>,
-) -> Result<LuaStackValues, E2eSurfaceError> {
+fn export_plus_one(frame: &mut StackFrame<'_, '_>) -> Result<LuaStackValues, E2eSurfaceError> {
     plus_one
         .push(frame)
         .map_err(|error| E2eSurfaceError(error.to_string()))?;
@@ -314,8 +310,8 @@ fn complete_background(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .drain(main_thread, |_, value| completed = Some(value));
-    let value = completed
-        .ok_or_else(|| E2eSurfaceError("no background completion queued".to_owned()))?;
+    let value =
+        completed.ok_or_else(|| E2eSurfaceError("no background completion queued".to_owned()))?;
     let (returned,) = callback.call::<_, (f64,)>(frame, (value as f64,))?;
     Ok(returned)
 }
