@@ -619,6 +619,8 @@ struct DebugObservation {
 #[cfg(feature = "debug")]
 thread_local! {
     static DEBUG_OBSERVATION: RefCell<Option<DebugObservation>> = const { RefCell::new(None) };
+    static DEBUG_HOOK_TO_RESTORE: RefCell<Option<rsgdll_lua::DebugHookGuard>> =
+        const { RefCell::new(None) };
 }
 
 #[cfg(feature = "debug")]
@@ -636,6 +638,10 @@ unsafe extern "C" fn previous_debug_hook(
 fn inspect_debug_hook(mut context: DebugContext<'_>) {
     let event = context.event();
     assert!(context.frame(1).expect("stack walk").is_none());
+    {
+        let mut stack = context.stack_frame();
+        stack.push("temporary").expect("temporary push");
+    }
     let mut frame = context.current_frame();
     let info = frame.info().expect("frame info");
     let local = frame.local(1).expect("local lookup").expect("first local");
@@ -672,6 +678,17 @@ fn inspect_debug_hook(mut context: DebugContext<'_>) {
             upvalue_name,
             upvalue_value,
         });
+    });
+}
+
+#[cfg(feature = "debug")]
+fn restore_debug_hook(mut context: DebugContext<'_>) {
+    DEBUG_HOOK_TO_RESTORE.with(|hook| {
+        hook.borrow_mut()
+            .as_mut()
+            .expect("installed hook")
+            .restore_with_context(&mut context)
+            .expect("hook restore from callback");
     });
 }
 
@@ -739,4 +756,28 @@ fn debug_hook_inspects_updates_and_restores() {
     assert_eq!((mask, count), (LUA_MASK_CALL, 9));
     fixture.trigger_debug_hook(LUA_HOOK_LINE);
     assert_eq!(PREVIOUS_HOOK_CALLS.load(Ordering::Relaxed), 1);
+}
+
+#[cfg(feature = "debug")]
+#[test]
+fn debug_hook_can_restore_itself_from_its_callback() {
+    let mut fixture = Fixture::new(Vec::new(), Vec::new());
+    fixture.set_debug_hook_raw(Some(previous_debug_hook), LUA_MASK_CALL, 9);
+
+    let guard = {
+        // SAFETY: fixture owns a live state and matching fake vtable.
+        let mut lua = unsafe { Lua::from_raw(fixture.state()) }.expect("valid fixture");
+        lua.install_debug_hook(DebugMask::LINES, 7, restore_debug_hook)
+            .expect("hook install")
+    };
+    DEBUG_HOOK_TO_RESTORE.with(|hook| *hook.borrow_mut() = Some(guard));
+
+    fixture.trigger_debug_hook(LUA_HOOK_LINE);
+
+    let (_, mask, count) = fixture.debug_hook_config();
+    assert_eq!((mask, count), (LUA_MASK_CALL, 9));
+    assert!(!DEBUG_HOOK_TO_RESTORE.with(|hook| hook.borrow().as_ref().unwrap().is_active()));
+    DEBUG_HOOK_TO_RESTORE.with(|hook| {
+        hook.borrow_mut().take();
+    });
 }

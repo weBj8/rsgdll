@@ -145,6 +145,11 @@ impl DebugHookGuard {
         self.restore(frame.lua_mut())
     }
 
+    /// Restores this hook while its debug callback still owns the Lua state.
+    pub fn restore_with_context(&mut self, context: &mut DebugContext<'_>) -> LuaResult<()> {
+        self.restore(&mut context.lua)
+    }
+
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.active
@@ -267,6 +272,11 @@ impl<'event> DebugContext<'event> {
     #[must_use]
     pub const fn event(&self) -> DebugEvent {
         self.event
+    }
+
+    /// Starts a checked stack guard scoped to this debug callback.
+    pub fn stack_frame<'frame>(&'frame mut self) -> StackFrame<'frame, 'event> {
+        StackFrame::new(&mut self.lua)
     }
 
     /// Borrows the frame that triggered this hook event.
