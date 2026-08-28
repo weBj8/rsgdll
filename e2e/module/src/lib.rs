@@ -2,6 +2,7 @@ mod close;
 
 use rsgdll::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -9,6 +10,13 @@ use thiserror::Error;
 
 static COUNTER_DROPS: AtomicU64 = AtomicU64::new(0);
 static BACKGROUND: OnceLock<BackgroundCompletion> = OnceLock::new();
+static DEBUG_LINE_EVENTS: AtomicU64 = AtomicU64::new(0);
+static DEBUG_LOCAL: AtomicU64 = AtomicU64::new(f64::NAN.to_bits());
+static DEBUG_UPVALUE: AtomicU64 = AtomicU64::new(f64::NAN.to_bits());
+
+thread_local! {
+    static DEBUG_HOOK: RefCell<Option<DebugHookGuard>> = const { RefCell::new(None) };
+}
 
 #[rsgdll::module(close = close::run)]
 fn module(module: &mut ModuleBuilder) {
@@ -37,7 +45,10 @@ fn module(module: &mut ModuleBuilder) {
         .function("binary_echo", binary_echo)
         .function("serde_round_trip", serde_round_trip)
         .function("start_background", start_background)
-        .function("complete_background", complete_background);
+        .function("complete_background", complete_background)
+        .function("debug_attach", debug_attach)
+        .function("debug_detach", debug_detach)
+        .function("debug_observation", debug_observation);
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     module.function("engine_is_dedicated", engine_is_dedicated);
     #[cfg(feature = "crash-test")]
@@ -307,6 +318,70 @@ fn complete_background(
         .ok_or_else(|| E2eSurfaceError("no background completion queued".to_owned()))?;
     let (returned,) = callback.call::<_, (f64,)>(frame, (value as f64,))?;
     Ok(returned)
+}
+
+#[rsgdll::function]
+fn debug_attach(frame: &mut StackFrame<'_, '_>) -> Result<bool, LuaError> {
+    DEBUG_LINE_EVENTS.store(0, Ordering::Relaxed);
+    DEBUG_LOCAL.store(f64::NAN.to_bits(), Ordering::Relaxed);
+    DEBUG_UPVALUE.store(f64::NAN.to_bits(), Ordering::Relaxed);
+    DEBUG_HOOK.with(|hook| {
+        let mut hook = hook.borrow_mut();
+        if hook.is_some() {
+            return Ok(false);
+        }
+        *hook = Some(frame.install_debug_hook(DebugMask::LINES, 0, inspect_debug_event)?);
+        Ok(true)
+    })
+}
+
+#[rsgdll::function]
+fn debug_detach(frame: &mut StackFrame<'_, '_>) -> Result<bool, LuaError> {
+    DEBUG_HOOK.with(|hook| {
+        let mut hook = hook.borrow_mut();
+        let Some(mut guard) = hook.take() else {
+            return Ok(false);
+        };
+        guard.restore_with_frame(frame)?;
+        Ok(true)
+    })
+}
+
+#[rsgdll::function]
+fn debug_observation() -> (u64, f64, f64) {
+    (
+        DEBUG_LINE_EVENTS.load(Ordering::Relaxed),
+        f64::from_bits(DEBUG_LOCAL.load(Ordering::Relaxed)),
+        f64::from_bits(DEBUG_UPVALUE.load(Ordering::Relaxed)),
+    )
+}
+
+fn inspect_debug_event(mut context: DebugContext<'_>) {
+    if context.event() != DebugEvent::Line {
+        return;
+    }
+    DEBUG_LINE_EVENTS.fetch_add(1, Ordering::Relaxed);
+    let mut frame = context.current_frame();
+    for index in 1..=64 {
+        let Ok(Some(local)) = frame.local(index) else {
+            break;
+        };
+        if local.name().as_bytes() == b"rsgdebug_local_probe"
+            && let Ok(value) = local.get::<f64>()
+        {
+            DEBUG_LOCAL.store(value.to_bits(), Ordering::Relaxed);
+        }
+    }
+    for index in 1..=64 {
+        let Ok(Some(upvalue)) = frame.upvalue(index) else {
+            break;
+        };
+        if upvalue.name().as_bytes() == b"rsgdebug_upvalue_probe"
+            && let Ok(value) = upvalue.get::<f64>()
+        {
+            DEBUG_UPVALUE.store(value.to_bits(), Ordering::Relaxed);
+        }
+    }
 }
 
 #[derive(Debug, Error)]

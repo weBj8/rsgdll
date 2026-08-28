@@ -12,7 +12,7 @@ crash-test = []
 crate-type = ["cdylib"]
 
 [dependencies]
-rsgdll = { path = "../../crates/rsgdll", features = ["async", "backtrace", "serde"] }
+rsgdll = { path = "../../crates/rsgdll", features = ["async", "backtrace", "debug", "serde"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 

@@ -16,6 +16,16 @@ use rsgdll_platform::__private::{
     RSGDLL_ABI_SET_STATE_SLOT, RSGDLL_ABI_SET_USER_TYPE_SLOT, RSGDLL_ABI_THROW_ERROR_SLOT,
     RSGDLL_ABI_TOP_SLOT, RawLuaState,
 };
+#[cfg(all(feature = "debug", feature = "test-support"))]
+use rsgdll_platform::__private::{
+    LuaGetHook, LuaGetHookCount, LuaGetHookMask, LuaGetInfo, LuaGetLocal, LuaGetStack,
+    LuaGetUpvalue, LuaSetHook, LuaSetLocal, LuaSetUpvalue,
+};
+#[cfg(feature = "debug")]
+use rsgdll_platform::__private::{LuaHook, RawLuaDebug};
+
+#[cfg(all(feature = "debug", not(feature = "test-support")))]
+mod debug_native;
 
 /// Capacity of the stack-owned error buffer supplied by the C++ trampoline.
 pub const ERROR_BUFFER_CAPACITY: u32 = 32 * 1024;
@@ -231,6 +241,9 @@ impl DispatchResult {
 pub type Dispatcher =
     unsafe extern "C" fn(*mut RawLuaState, *mut c_char, u32, *mut ReturnBuffer) -> DispatchResult;
 
+#[cfg(feature = "debug")]
+pub type DebugDispatcher = unsafe extern "C" fn(*mut RawLuaState, *mut RawLuaDebug);
+
 unsafe extern "C" {
     #[cfg(feature = "test-support")]
     fn rsgdll_bridge_enable_test_mode(layout: *const AbiLayout);
@@ -243,7 +256,67 @@ unsafe extern "C" {
     ) -> c_int;
     fn rsgdll_bridge_set_dispatcher(dispatcher: Dispatcher);
     fn rsgdll_bridge_trampoline(state: *mut RawLuaState) -> c_int;
+    #[cfg(all(feature = "debug", not(feature = "test-support")))]
+    fn rsgdll_bridge_debug_set_dispatcher(dispatcher: DebugDispatcher);
+    #[cfg(all(feature = "debug", not(feature = "test-support")))]
+    fn rsgdll_bridge_debug_hook(state: *mut RawLuaState, record: *mut RawLuaDebug);
 }
+
+#[cfg(all(feature = "debug", feature = "test-support"))]
+mod debug_test_support {
+    use std::sync::{Mutex, OnceLock};
+
+    use super::{
+        DebugDispatcher, LuaGetHook, LuaGetHookCount, LuaGetHookMask, LuaGetInfo, LuaGetLocal,
+        LuaGetStack, LuaGetUpvalue, LuaHook, LuaSetHook, LuaSetLocal, LuaSetUpvalue, RawLuaDebug,
+        RawLuaState,
+    };
+
+    #[derive(Clone, Copy)]
+    pub struct DebugApi {
+        pub get_stack: LuaGetStack,
+        pub get_info: LuaGetInfo,
+        pub get_local: LuaGetLocal,
+        pub set_local: LuaSetLocal,
+        pub get_upvalue: LuaGetUpvalue,
+        pub set_upvalue: LuaSetUpvalue,
+        pub set_hook: LuaSetHook,
+        pub get_hook: LuaGetHook,
+        pub get_hook_mask: LuaGetHookMask,
+        pub get_hook_count: LuaGetHookCount,
+    }
+
+    static API: OnceLock<DebugApi> = OnceLock::new();
+    static DISPATCHER: Mutex<Option<DebugDispatcher>> = Mutex::new(None);
+
+    pub fn install(api: DebugApi) {
+        let _ = API.set(api);
+    }
+
+    pub fn api() -> &'static DebugApi {
+        API.get().expect("debug test API is not installed")
+    }
+
+    pub fn set_dispatcher(dispatcher: DebugDispatcher) {
+        *DISPATCHER.lock().expect("debug dispatcher lock") = Some(dispatcher);
+    }
+
+    pub unsafe extern "C" fn hook(state: *mut RawLuaState, record: *mut RawLuaDebug) {
+        let dispatcher = *DISPATCHER.lock().expect("debug dispatcher lock");
+        if let Some(dispatcher) = dispatcher {
+            // SAFETY: test fixture invokes this with its live state and record.
+            unsafe { dispatcher(state, record) };
+        }
+    }
+
+    pub fn hook_pointer() -> LuaHook {
+        Some(hook)
+    }
+}
+
+#[doc(hidden)]
+#[cfg(all(feature = "debug", feature = "test-support"))]
+pub use debug_test_support::DebugApi;
 
 #[doc(hidden)]
 #[cfg(feature = "test-support")]
@@ -304,6 +377,280 @@ pub unsafe fn set_dispatcher(dispatcher: Dispatcher) {
 #[must_use]
 pub fn trampoline() -> LuaCFunction {
     rsgdll_bridge_trampoline
+}
+
+#[cfg(feature = "debug")]
+/// Calls `lua_getstack` through the pinned bridge.
+///
+/// # Safety
+///
+/// Pointers must belong to one live main-thread Lua callback.
+pub unsafe fn debug_get_stack(
+    state: *mut RawLuaState,
+    level: c_int,
+    record: *mut RawLuaDebug,
+) -> c_int {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller upholds the Lua debug API contract.
+        unsafe { (debug_test_support::api().get_stack)(state, level, record) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().map_or(0, |api| {
+            // SAFETY: caller upholds the Lua debug API contract.
+            unsafe { (api.get_stack)(state, level, record) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Calls `lua_getinfo` through the pinned bridge.
+///
+/// # Safety
+///
+/// `what` must be NUL-terminated; state and record must be live and related.
+pub unsafe fn debug_get_info(
+    state: *mut RawLuaState,
+    what: *const c_char,
+    record: *mut RawLuaDebug,
+) -> c_int {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller upholds the Lua debug API contract.
+        unsafe { (debug_test_support::api().get_info)(state, what, record) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().map_or(0, |api| {
+            // SAFETY: caller upholds the Lua debug API contract.
+            unsafe { (api.get_info)(state, what, record) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Calls `lua_getlocal` through the pinned bridge.
+///
+/// # Safety
+///
+/// State and record must identify one live Lua frame.
+pub unsafe fn debug_get_local(
+    state: *mut RawLuaState,
+    record: *const RawLuaDebug,
+    index: c_int,
+) -> *const c_char {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller upholds the Lua debug API contract.
+        unsafe { (debug_test_support::api().get_local)(state, record, index) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().map_or(std::ptr::null(), |api| {
+            // SAFETY: caller upholds the Lua debug API contract.
+            unsafe { (api.get_local)(state, record, index) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Calls `lua_setlocal` through the pinned bridge.
+///
+/// # Safety
+///
+/// State and record must identify one live frame with a value at stack top.
+pub unsafe fn debug_set_local(
+    state: *mut RawLuaState,
+    record: *const RawLuaDebug,
+    index: c_int,
+) -> *const c_char {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller upholds the Lua debug API contract.
+        unsafe { (debug_test_support::api().set_local)(state, record, index) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().map_or(std::ptr::null(), |api| {
+            // SAFETY: caller upholds the Lua debug API contract.
+            unsafe { (api.set_local)(state, record, index) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Calls `lua_getupvalue` through the pinned bridge.
+///
+/// # Safety
+///
+/// State must be live and `function_index` must identify a Lua function.
+pub unsafe fn debug_get_upvalue(
+    state: *mut RawLuaState,
+    function_index: c_int,
+    index: c_int,
+) -> *const c_char {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller upholds the Lua debug API contract.
+        unsafe { (debug_test_support::api().get_upvalue)(state, function_index, index) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().map_or(std::ptr::null(), |api| {
+            // SAFETY: caller upholds the Lua debug API contract.
+            unsafe { (api.get_upvalue)(state, function_index, index) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Calls `lua_setupvalue` through the pinned bridge.
+///
+/// # Safety
+///
+/// State must be live, the function index valid, and a value at stack top.
+pub unsafe fn debug_set_upvalue(
+    state: *mut RawLuaState,
+    function_index: c_int,
+    index: c_int,
+) -> *const c_char {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller upholds the Lua debug API contract.
+        unsafe { (debug_test_support::api().set_upvalue)(state, function_index, index) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().map_or(std::ptr::null(), |api| {
+            // SAFETY: caller upholds the Lua debug API contract.
+            unsafe { (api.set_upvalue)(state, function_index, index) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Calls `lua_sethook` through the pinned bridge.
+///
+/// # Safety
+///
+/// State must be live and the hook must obey the pinned Lua hook ABI.
+pub unsafe fn debug_set_hook(
+    state: *mut RawLuaState,
+    hook: LuaHook,
+    mask: c_int,
+    count: c_int,
+) -> c_int {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller upholds the Lua hook contract.
+        unsafe { (debug_test_support::api().set_hook)(state, hook, mask, count) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().map_or(0, |api| {
+            // SAFETY: caller upholds the Lua hook contract.
+            unsafe { (api.set_hook)(state, hook, mask, count) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Reads the current hook from one live Lua state.
+///
+/// # Safety
+///
+/// State must be live and main-thread-owned.
+pub unsafe fn debug_get_hook(state: *mut RawLuaState) -> LuaHook {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller supplies a live Lua state.
+        unsafe { (debug_test_support::api().get_hook)(state) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().and_then(|api| {
+            // SAFETY: caller supplies a live Lua state.
+            unsafe { (api.get_hook)(state) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Reads the current hook mask from one live Lua state.
+///
+/// # Safety
+///
+/// State must be live and main-thread-owned.
+pub unsafe fn debug_get_hook_mask(state: *mut RawLuaState) -> c_int {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller supplies a live Lua state.
+        unsafe { (debug_test_support::api().get_hook_mask)(state) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().map_or(0, |api| {
+            // SAFETY: caller supplies a live Lua state.
+            unsafe { (api.get_hook_mask)(state) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Reads the current hook count from one live Lua state.
+///
+/// # Safety
+///
+/// State must be live and main-thread-owned.
+pub unsafe fn debug_get_hook_count(state: *mut RawLuaState) -> c_int {
+    #[cfg(feature = "test-support")]
+    {
+        // SAFETY: caller supplies a live Lua state.
+        unsafe { (debug_test_support::api().get_hook_count)(state) }
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        debug_native::api().map_or(0, |api| {
+            // SAFETY: caller supplies a live Lua state.
+            unsafe { (api.get_hook_count)(state) }
+        })
+    }
+}
+
+#[cfg(feature = "debug")]
+/// Registers the permanent Rust debug dispatcher.
+///
+/// # Safety
+///
+/// Dispatcher must not unwind and may borrow pointers only for one call.
+pub unsafe fn set_debug_dispatcher(dispatcher: DebugDispatcher) {
+    #[cfg(feature = "test-support")]
+    debug_test_support::set_dispatcher(dispatcher);
+    #[cfg(not(feature = "test-support"))]
+    {
+        // SAFETY: function pointer has the exact permanent bridge ABI.
+        unsafe { rsgdll_bridge_debug_set_dispatcher(dispatcher) };
+    }
+}
+
+#[cfg(feature = "debug")]
+#[must_use]
+pub fn debug_hook() -> LuaHook {
+    #[cfg(feature = "test-support")]
+    {
+        debug_test_support::hook_pointer()
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        Some(rsgdll_bridge_debug_hook)
+    }
+}
+
+#[doc(hidden)]
+#[cfg(all(feature = "debug", feature = "test-support"))]
+pub fn install_debug_test_api(api: DebugApi) {
+    debug_test_support::install(api);
 }
 
 const _: () = assert!(STATUS_SUCCESS != STATUS_RUST_ERROR);

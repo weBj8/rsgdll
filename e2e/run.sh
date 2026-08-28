@@ -31,13 +31,13 @@ case "$target" in
         default_gmod_branch=public
         module_suffix=linux
         server_binary=srcds_linux
-        enabled_features='async, backtrace, serde'
+        enabled_features='async, backtrace, debug, serde'
         ;;
     x86_64-unknown-linux-gnu)
         default_gmod_branch=x86-64
         module_suffix=linux64
         server_binary=bin/linux64/srcds
-        enabled_features='async, backtrace, engine, serde'
+        enabled_features='async, backtrace, debug, engine, serde'
         ;;
     *)
         printf 'unsupported E2E target: %s\n' "$target" >&2

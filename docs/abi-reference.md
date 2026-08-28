@@ -7,6 +7,8 @@ Part 2 is handwritten against these exact sources:
   - [`include/GarrysMod/Lua/Interface.h`](https://github.com/danielga/garrysmod_common/blob/f77a18d86f780a59ea30e4237016b05b790d4b70/include/GarrysMod/Lua/Interface.h)
   - [`include/GarrysMod/Lua/LuaBase.h`](https://github.com/danielga/garrysmod_common/blob/f77a18d86f780a59ea30e4237016b05b790d4b70/include/GarrysMod/Lua/LuaBase.h)
   - [`include/GarrysMod/Lua/Types.h`](https://github.com/danielga/garrysmod_common/blob/f77a18d86f780a59ea30e4237016b05b790d4b70/include/GarrysMod/Lua/Types.h)
+  - [`include/lua.h`](https://github.com/danielga/garrysmod_common/blob/f77a18d86f780a59ea30e4237016b05b790d4b70/include/lua.h)
+  - [`include/luaconf.h`](https://github.com/danielga/garrysmod_common/blob/f77a18d86f780a59ea30e4237016b05b790d4b70/include/luaconf.h)
 - Facepunch's original `gmod-module-base` commit
   [`4fdafe7d762fe63f0360c67d9e119a129292712e`](https://github.com/Facepunch/gmod-module-base/commit/4fdafe7d762fe63f0360c67d9e119a129292712e)
   is retained as historical provenance, not as the current 64-bit state-layout
@@ -65,6 +67,22 @@ The checked `rsgdll-lua` layer does not invoke potentially throwing raw
 operations directly. The C++ bridge prepares an executor closure before
 entering Rust, then runs each POD-described mutation through
 `ILuaBase::PCall`. Only exact-type, non-coercing reads remain direct.
+
+The optional checked debugger API uses this pinned LuaJIT debug ABI. Garry's
+Mod changes `LUA_IDSIZE` from upstream's 60 bytes to 128 bytes, making
+`lua_Debug` 192 bytes on x86_64 and 168 bytes on x86. Static offset and size
+checks cover both layouts. Hook events are `Call=0`, `Return=1`, `Line=2`,
+`Count=3`, and `TailReturn=4`; masks are the corresponding bits.
+
+The bridge resolves these stable `lua_*` exports from Garry's Mod's loaded
+`lua_shared` library with `dlopen`/`dlsym` on Linux and
+`GetModuleHandle`/`GetProcAddress` on Windows. This avoids unresolved module
+imports without signature scanning or detours. Failure to resolve the complete
+pinned API makes checked hook installation fail normally.
+
+Debug hook callbacks first enter the existing C++ protected-operation context.
+Rust sees only callback-scoped checked views. The normal public facade never
+exposes `lua_State*` or `lua_Debug*`.
 
 ## Foreign runtime contract
 

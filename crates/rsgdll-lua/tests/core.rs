@@ -2,8 +2,14 @@ mod support;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+#[cfg(feature = "debug")]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg(feature = "debug")]
+use rsgdll_abi::{LUA_HOOK_LINE, LUA_MASK_CALL};
 use rsgdll_abi::{LuaCFunction, LuaType};
+#[cfg(feature = "debug")]
+use rsgdll_lua::{DebugContext, DebugEvent, DebugMask};
 use rsgdll_lua::{FromLua, IntoLua, IntoLuaMulti, Lua, LuaBytes, LuaError, LuaResult, StackFrame};
 use support::{Fixture, LuaTestExt, Value};
 
@@ -596,4 +602,141 @@ fn userdata_finalization_drops_rust_value_exactly_once() {
     // Then: Rust ownership is released exactly once.
     assert_eq!(drops.get(), 1);
     assert_eq!(second, LuaError::FinalizedUserData);
+}
+
+#[cfg(feature = "debug")]
+#[derive(Debug, PartialEq)]
+struct DebugObservation {
+    event: DebugEvent,
+    source: Vec<u8>,
+    line: i32,
+    local_name: Vec<u8>,
+    local_value: f64,
+    upvalue_name: Vec<u8>,
+    upvalue_value: Vec<u8>,
+}
+
+#[cfg(feature = "debug")]
+thread_local! {
+    static DEBUG_OBSERVATION: RefCell<Option<DebugObservation>> = const { RefCell::new(None) };
+}
+
+#[cfg(feature = "debug")]
+static PREVIOUS_HOOK_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn previous_debug_hook(
+    _: *mut rsgdll_abi::RawLuaState,
+    _: *mut rsgdll_abi::RawLuaDebug,
+) {
+    PREVIOUS_HOOK_CALLS.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(feature = "debug")]
+fn inspect_debug_hook(mut context: DebugContext<'_>) {
+    let event = context.event();
+    assert!(context.frame(1).expect("stack walk").is_none());
+    let mut frame = context.current_frame();
+    let info = frame.info().expect("frame info");
+    let local = frame.local(1).expect("local lookup").expect("first local");
+    let local_name = local.name().as_bytes().to_vec();
+    let local_value = local.get::<f64>().expect("numeric local");
+    drop(local);
+    frame
+        .set_local(1, local_value + 1.0)
+        .expect("set local")
+        .expect("local name");
+
+    let upvalue = frame
+        .upvalue(1)
+        .expect("upvalue lookup")
+        .expect("first upvalue");
+    let upvalue_name = upvalue.name().as_bytes().to_vec();
+    let upvalue_value = upvalue
+        .get::<String>()
+        .expect("string upvalue")
+        .into_bytes();
+    drop(upvalue);
+    frame
+        .set_upvalue(1, "updated")
+        .expect("set upvalue")
+        .expect("upvalue name");
+
+    DEBUG_OBSERVATION.with(|observation| {
+        *observation.borrow_mut() = Some(DebugObservation {
+            event,
+            source: info.source.expect("source").as_bytes().to_vec(),
+            line: info.current_line,
+            local_name,
+            local_value,
+            upvalue_name,
+            upvalue_value,
+        });
+    });
+}
+
+#[cfg(feature = "debug")]
+#[test]
+fn debug_event_conversion_preserves_known_and_future_values() {
+    assert_eq!(DebugEvent::from_raw(0), DebugEvent::Call);
+    assert_eq!(DebugEvent::from_raw(1), DebugEvent::Return);
+    assert_eq!(DebugEvent::from_raw(2), DebugEvent::Line);
+    assert_eq!(DebugEvent::from_raw(3), DebugEvent::Count);
+    assert_eq!(DebugEvent::from_raw(4), DebugEvent::TailReturn);
+    assert_eq!(DebugEvent::from_raw(99), DebugEvent::Unknown(99));
+    assert!((DebugMask::CALLS | DebugMask::LINES).contains(DebugMask::LINES));
+}
+
+#[cfg(feature = "debug")]
+#[test]
+fn debug_hook_inspects_updates_and_restores() {
+    PREVIOUS_HOOK_CALLS.store(0, Ordering::Relaxed);
+    DEBUG_OBSERVATION.with(|observation| *observation.borrow_mut() = None);
+    let mut fixture = Fixture::new(Vec::new(), Vec::new());
+    fixture.set_debug_values(
+        vec![("answer", Value::Number(41.0))],
+        vec![("label", Value::String(b"original".to_vec()))],
+    );
+    fixture.set_debug_hook_raw(Some(previous_debug_hook), LUA_MASK_CALL, 9);
+
+    let mut guard = {
+        // SAFETY: fixture owns a live state and matching fake vtable.
+        let mut lua = unsafe { Lua::from_raw(fixture.state()) }.expect("valid fixture");
+        lua.install_debug_hook(DebugMask::LINES | DebugMask::CALLS, 7, inspect_debug_hook)
+            .expect("hook install")
+    };
+    let (_, mask, count) = fixture.debug_hook_config();
+    assert_eq!(mask, 5);
+    assert_eq!(count, 7);
+
+    fixture.trigger_debug_hook(LUA_HOOK_LINE);
+    assert_eq!(
+        DEBUG_OBSERVATION.with(|observation| observation.borrow_mut().take()),
+        Some(DebugObservation {
+            event: DebugEvent::Line,
+            source: b"@fixture.lua".to_vec(),
+            line: 12,
+            local_name: b"answer".to_vec(),
+            local_value: 41.0,
+            upvalue_name: b"label".to_vec(),
+            upvalue_value: b"original".to_vec(),
+        })
+    );
+    let (locals, upvalues) = fixture.debug_values();
+    assert!(matches!(locals.as_slice(), [Value::Number(42.0)]));
+    assert!(matches!(
+        upvalues.as_slice(),
+        [Value::String(value)] if value == b"updated"
+    ));
+
+    {
+        // SAFETY: fixture still owns the same live state.
+        let mut lua = unsafe { Lua::from_raw(fixture.state()) }.expect("valid fixture");
+        guard.restore(&mut lua).expect("hook restore");
+    }
+    assert!(!guard.is_active());
+    let (_, mask, count) = fixture.debug_hook_config();
+    assert_eq!((mask, count), (LUA_MASK_CALL, 9));
+    fixture.trigger_debug_hook(LUA_HOOK_LINE);
+    assert_eq!(PREVIOUS_HOOK_CALLS.load(Ordering::Relaxed), 1);
 }

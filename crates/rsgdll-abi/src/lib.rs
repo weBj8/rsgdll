@@ -17,10 +17,17 @@ compile_error!(
      this target has no header-defined ABI description"
 );
 
+mod debug;
 mod lua_base;
 mod state;
 mod types;
 
+pub use debug::{
+    LUA_DEBUG_SHORT_SOURCE_CAPACITY, LUA_HOOK_CALL, LUA_HOOK_COUNT, LUA_HOOK_LINE, LUA_HOOK_RETURN,
+    LUA_HOOK_TAIL_RETURN, LUA_MASK_CALL, LUA_MASK_COUNT, LUA_MASK_LINE, LUA_MASK_RETURN,
+    LuaGetHook, LuaGetHookCount, LuaGetHookMask, LuaGetInfo, LuaGetLocal, LuaGetStack,
+    LuaGetUpvalue, LuaHook, LuaSetHook, LuaSetLocal, LuaSetUpvalue, RawLuaDebug,
+};
 pub use lua_base::{
     RSGDLL_ABI_CREATE_META_TABLE_SLOT, RSGDLL_ABI_CREATE_TABLE_SLOT, RSGDLL_ABI_GET_TYPE_SLOT,
     RSGDLL_ABI_NEW_USERDATA_SLOT, RSGDLL_ABI_NEXT_SLOT, RSGDLL_ABI_PCALL_SLOT, RSGDLL_ABI_POP_SLOT,

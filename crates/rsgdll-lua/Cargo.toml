@@ -8,6 +8,7 @@ license.workspace = true
 
 [features]
 default = []
+debug = ["rsgdll-bridge/debug"]
 serde = ["dep:serde", "dep:serde_json"]
 
 [dependencies]

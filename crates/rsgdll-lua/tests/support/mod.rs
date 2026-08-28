@@ -5,6 +5,8 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use rsgdll_abi::{LuaCFunction, LuaType, RawLuaBase, RawLuaState, RawUserData, SpecialIndex};
+#[cfg(feature = "debug")]
+use rsgdll_abi::{LuaHook, RawLuaDebug};
 use rsgdll_lua::{Lua, LuaResult};
 
 pub trait LuaTestExt: Sized {
@@ -61,6 +63,30 @@ struct TestState {
     next_userdata_type: c_int,
     userdata_allocations: Vec<*mut RawUserData>,
     get_userdata_calls: usize,
+    #[cfg(feature = "debug")]
+    debug_hook: LuaHook,
+    #[cfg(feature = "debug")]
+    debug_hook_mask: c_int,
+    #[cfg(feature = "debug")]
+    debug_hook_count: c_int,
+    #[cfg(feature = "debug")]
+    debug_frames: Vec<DebugTestFrame>,
+    #[cfg(feature = "debug")]
+    debug_function_frame: Option<usize>,
+}
+
+#[cfg(feature = "debug")]
+struct DebugTestFrame {
+    name: Vec<u8>,
+    name_what: Vec<u8>,
+    what: Vec<u8>,
+    source: Vec<u8>,
+    short_source: Vec<u8>,
+    current_line: c_int,
+    line_defined: c_int,
+    last_line_defined: c_int,
+    locals: Vec<(Vec<u8>, Value)>,
+    upvalues: Vec<(Vec<u8>, Value)>,
 }
 
 #[repr(C)]
@@ -155,12 +181,46 @@ impl Fixture {
             next_userdata_type: 1,
             userdata_allocations: Vec::new(),
             get_userdata_calls: 0,
+            #[cfg(feature = "debug")]
+            debug_hook: None,
+            #[cfg(feature = "debug")]
+            debug_hook_mask: 0,
+            #[cfg(feature = "debug")]
+            debug_hook_count: 0,
+            #[cfg(feature = "debug")]
+            debug_frames: vec![DebugTestFrame {
+                name: b"fixture\0".to_vec(),
+                name_what: b"global\0".to_vec(),
+                what: b"Lua\0".to_vec(),
+                source: b"@fixture.lua\0".to_vec(),
+                short_source: b"fixture.lua".to_vec(),
+                current_line: 12,
+                line_defined: 1,
+                last_line_defined: 20,
+                locals: Vec::new(),
+                upvalues: Vec::new(),
+            }],
+            #[cfg(feature = "debug")]
+            debug_function_frame: None,
         })));
         // SAFETY: raw-owned allocations remain live until `Fixture::drop`.
         unsafe { (*lua_base.as_ptr()).state = state.as_ptr().cast() };
         // SAFETY: fixture setup vtable methods are deterministic Rust fakes
         // that never raise Lua errors or perform `longjmp`.
         unsafe { rsgdll_bridge::__private::enable_test_mode() };
+        #[cfg(feature = "debug")]
+        rsgdll_bridge::install_debug_test_api(rsgdll_bridge::DebugApi {
+            get_stack: debug_get_stack,
+            get_info: debug_get_info,
+            get_local: debug_get_local,
+            set_local: debug_set_local,
+            get_upvalue: debug_get_upvalue,
+            set_upvalue: debug_set_upvalue,
+            set_hook: debug_set_hook,
+            get_hook: debug_get_hook,
+            get_hook_mask: debug_get_hook_mask,
+            get_hook_count: debug_get_hook_count,
+        });
         Self {
             state,
             lua_base,
@@ -196,6 +256,72 @@ impl Fixture {
         let state = unsafe { self.state.as_mut() };
         state.userdata_allocations.push(header);
         state.stack.push(Value::UserData(header));
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn set_debug_values(&mut self, locals: Vec<(&str, Value)>, upvalues: Vec<(&str, Value)>) {
+        // SAFETY: fixture exclusively owns the live test state.
+        let frame = &mut unsafe { self.state.as_mut() }.debug_frames[0];
+        frame.locals = locals
+            .into_iter()
+            .map(|(name, value)| (nul_terminated(name), value))
+            .collect();
+        frame.upvalues = upvalues
+            .into_iter()
+            .map(|(name, value)| (nul_terminated(name), value))
+            .collect();
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn trigger_debug_hook(&mut self, event: c_int) {
+        // SAFETY: fixture exclusively owns the live test state.
+        let state = unsafe { self.state.as_mut() };
+        let Some(hook) = state.debug_hook else {
+            return;
+        };
+        let mut record = RawLuaDebug::empty();
+        record.event = event;
+        record.private_call_info = 0;
+        // SAFETY: hook receives this fixture's live state and record.
+        unsafe { hook(self.state(), &mut record) };
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn debug_hook_config(&self) -> (LuaHook, c_int, c_int) {
+        // SAFETY: caller inspects only while no checked Lua borrow is active.
+        let state = unsafe { self.state.as_ref() };
+        (
+            state.debug_hook,
+            state.debug_hook_mask,
+            state.debug_hook_count,
+        )
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn set_debug_hook_raw(&mut self, hook: LuaHook, mask: c_int, count: c_int) {
+        // SAFETY: fixture exclusively owns the live test state.
+        let state = unsafe { self.state.as_mut() };
+        state.debug_hook = hook;
+        state.debug_hook_mask = mask;
+        state.debug_hook_count = count;
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn debug_values(&self) -> (Vec<Value>, Vec<Value>) {
+        // SAFETY: caller inspects only while no checked Lua borrow is active.
+        let frame = &unsafe { self.state.as_ref() }.debug_frames[0];
+        (
+            frame
+                .locals
+                .iter()
+                .map(|(_, value)| value.clone())
+                .collect(),
+            frame
+                .upvalues
+                .iter()
+                .map(|(_, value)| value.clone())
+                .collect(),
+        )
     }
 }
 
@@ -620,6 +746,223 @@ unsafe extern "C" fn get_type(lua_base: *mut RawLuaBase, index: c_int) -> c_int 
 unsafe extern "C" fn set_state(lua_base: *mut RawLuaBase, state: *mut RawLuaState) {
     // SAFETY: forwarded from a live fixture vtable.
     unsafe { (*(lua_base.cast::<TestLuaBase>())).state = state };
+}
+
+#[cfg(feature = "debug")]
+fn nul_terminated(value: &str) -> Vec<u8> {
+    let mut bytes = value.as_bytes().to_vec();
+    bytes.push(0);
+    bytes
+}
+
+#[cfg(feature = "debug")]
+unsafe fn debug_state<'a>(state: *mut RawLuaState) -> &'a mut TestState {
+    // SAFETY: debug test API receives only live fixture state pointers.
+    unsafe { &mut *state.cast::<TestState>() }
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_get_stack(
+    state: *mut RawLuaState,
+    level: c_int,
+    record: *mut RawLuaDebug,
+) -> c_int {
+    // SAFETY: forwarded from the installed fixture debug API.
+    let state = unsafe { debug_state(state) };
+    let Ok(level) = usize::try_from(level) else {
+        return 0;
+    };
+    if level >= state.debug_frames.len() || record.is_null() {
+        return 0;
+    }
+    // SAFETY: caller supplied writable initialized debug storage.
+    unsafe { (*record).private_call_info = level as c_int };
+    1
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_get_info(
+    state: *mut RawLuaState,
+    what: *const c_char,
+    record: *mut RawLuaDebug,
+) -> c_int {
+    if record.is_null() || what.is_null() {
+        return 0;
+    }
+    // SAFETY: forwarded from the installed fixture debug API.
+    let state = unsafe { debug_state(state) };
+    // SAFETY: record is writable initialized storage from checked code.
+    let record = unsafe { &mut *record };
+    let Ok(frame_index) = usize::try_from(record.private_call_info) else {
+        return 0;
+    };
+    let Some(frame) = state.debug_frames.get(frame_index) else {
+        return 0;
+    };
+    // SAFETY: checked code supplies one NUL-terminated option string.
+    let what = unsafe { CStr::from_ptr(what) }.to_bytes();
+    if what.contains(&b'f') {
+        state.stack.push(Value::Function);
+        state.debug_function_frame = Some(frame_index);
+    }
+    record.name = frame.name.as_ptr().cast();
+    record.name_what = frame.name_what.as_ptr().cast();
+    record.what = frame.what.as_ptr().cast();
+    record.source = frame.source.as_ptr().cast();
+    record.current_line = frame.current_line;
+    record.upvalue_count = frame.upvalues.len() as c_int;
+    record.line_defined = frame.line_defined;
+    record.last_line_defined = frame.last_line_defined;
+    record.short_source.fill(0);
+    for (output, input) in record.short_source.iter_mut().zip(&frame.short_source) {
+        *output = *input as c_char;
+    }
+    1
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_get_local(
+    state: *mut RawLuaState,
+    record: *const RawLuaDebug,
+    index: c_int,
+) -> *const c_char {
+    if record.is_null() || index <= 0 {
+        return std::ptr::null();
+    }
+    // SAFETY: forwarded from the installed fixture debug API.
+    let state = unsafe { debug_state(state) };
+    // SAFETY: caller supplies one initialized live frame record.
+    let frame_index = unsafe { (*record).private_call_info as usize };
+    let Some((name, value)) = state
+        .debug_frames
+        .get(frame_index)
+        .and_then(|frame| frame.locals.get((index - 1) as usize))
+        .cloned()
+    else {
+        return std::ptr::null();
+    };
+    state.stack.push(value);
+    state.debug_frames[frame_index].locals[(index - 1) as usize].0 = name;
+    state.debug_frames[frame_index].locals[(index - 1) as usize]
+        .0
+        .as_ptr()
+        .cast()
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_set_local(
+    state: *mut RawLuaState,
+    record: *const RawLuaDebug,
+    index: c_int,
+) -> *const c_char {
+    if record.is_null() || index <= 0 {
+        return std::ptr::null();
+    }
+    // SAFETY: forwarded from the installed fixture debug API.
+    let state = unsafe { debug_state(state) };
+    // SAFETY: caller supplies one initialized live frame record.
+    let frame_index = unsafe { (*record).private_call_info as usize };
+    let Some(value) = state.stack.pop() else {
+        return std::ptr::null();
+    };
+    let Some((name, target)) = state
+        .debug_frames
+        .get_mut(frame_index)
+        .and_then(|frame| frame.locals.get_mut((index - 1) as usize))
+    else {
+        return std::ptr::null();
+    };
+    *target = value;
+    name.as_ptr().cast()
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_get_upvalue(
+    state: *mut RawLuaState,
+    _: c_int,
+    index: c_int,
+) -> *const c_char {
+    if index <= 0 {
+        return std::ptr::null();
+    }
+    // SAFETY: forwarded from the installed fixture debug API.
+    let state = unsafe { debug_state(state) };
+    let Some(frame_index) = state.debug_function_frame else {
+        return std::ptr::null();
+    };
+    let Some((name, value)) = state.debug_frames[frame_index]
+        .upvalues
+        .get((index - 1) as usize)
+        .cloned()
+    else {
+        return std::ptr::null();
+    };
+    state.stack.push(value);
+    state.debug_frames[frame_index].upvalues[(index - 1) as usize].0 = name;
+    state.debug_frames[frame_index].upvalues[(index - 1) as usize]
+        .0
+        .as_ptr()
+        .cast()
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_set_upvalue(
+    state: *mut RawLuaState,
+    _: c_int,
+    index: c_int,
+) -> *const c_char {
+    if index <= 0 {
+        return std::ptr::null();
+    }
+    // SAFETY: forwarded from the installed fixture debug API.
+    let state = unsafe { debug_state(state) };
+    let Some(frame_index) = state.debug_function_frame else {
+        return std::ptr::null();
+    };
+    let Some(value) = state.stack.pop() else {
+        return std::ptr::null();
+    };
+    let Some((name, target)) = state.debug_frames[frame_index]
+        .upvalues
+        .get_mut((index - 1) as usize)
+    else {
+        return std::ptr::null();
+    };
+    *target = value;
+    name.as_ptr().cast()
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_set_hook(
+    state: *mut RawLuaState,
+    hook: LuaHook,
+    mask: c_int,
+    count: c_int,
+) -> c_int {
+    // SAFETY: forwarded from the installed fixture debug API.
+    let state = unsafe { debug_state(state) };
+    state.debug_hook = hook;
+    state.debug_hook_mask = mask;
+    state.debug_hook_count = count;
+    1
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_get_hook(state: *mut RawLuaState) -> LuaHook {
+    // SAFETY: forwarded from the installed fixture debug API.
+    unsafe { debug_state(state) }.debug_hook
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_get_hook_mask(state: *mut RawLuaState) -> c_int {
+    // SAFETY: forwarded from the installed fixture debug API.
+    unsafe { debug_state(state) }.debug_hook_mask
+}
+
+#[cfg(feature = "debug")]
+unsafe extern "C" fn debug_get_hook_count(state: *mut RawLuaState) -> c_int {
+    // SAFETY: forwarded from the installed fixture debug API.
+    unsafe { debug_state(state) }.debug_hook_count
 }
 
 fn test_vtable() -> TestVTable {

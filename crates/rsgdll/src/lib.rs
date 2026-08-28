@@ -20,10 +20,26 @@ pub use rsgdll_macros::{function, module};
 /// ```compile_fail
 /// let _ = rsgdll::lua::LuaError::ProtectedOperation { opcode: 1, status: -1 };
 /// ```
+///
+/// Debug frames cannot escape their hook callback.
+///
+/// ```compile_fail
+/// use rsgdll::lua::{DebugContext, DebugFrame};
+///
+/// fn leak(context: &mut DebugContext<'_>) -> DebugFrame<'static, 'static> {
+///     context.current_frame()
+/// }
+/// ```
 pub mod lua {
     pub use rsgdll_lua::{
         FromLua, FromLuaMulti, IntoLua, IntoLuaMulti, Lua, LuaBytes, LuaError, LuaFunction,
         LuaResult, LuaTable, LuaType, RegistryReference, Stack, StackFrame, UserDataType,
+    };
+
+    #[cfg(feature = "debug")]
+    pub use rsgdll_lua::{
+        DebugContext, DebugEvent, DebugFrame, DebugFrameInfo, DebugHook, DebugHookGuard,
+        DebugLocal, DebugMask, DebugUpvalue,
     };
 
     #[cfg(feature = "serde")]
@@ -72,6 +88,11 @@ pub use rsgdll_detour as detour;
 
 /// Common developer-facing imports.
 pub mod prelude {
+    #[cfg(feature = "debug")]
+    pub use rsgdll_lua::{
+        DebugContext, DebugEvent, DebugFrame, DebugFrameInfo, DebugHook, DebugHookGuard,
+        DebugLocal, DebugMask, DebugUpvalue,
+    };
     pub use rsgdll_lua::{
         FromLua, FromLuaMulti, IntoLua, IntoLuaMulti, Lua, LuaBytes, LuaError, LuaFunction,
         LuaResult, LuaTable, RegistryReference, Stack, StackFrame, UserDataType,

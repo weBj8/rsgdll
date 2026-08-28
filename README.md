@@ -149,6 +149,20 @@ async fn run_background(sender: CompletionSender<u64>) {
 values through a `completion_queue`; drain the queue from a callback with
 `MainThread`.
 
+## Debug feature
+
+```toml
+[dependencies]
+rsgdll = { version = "0.1", features = ["debug"] }
+```
+
+`StackFrame::install_debug_hook` installs a callback-scoped checked hook.
+`DebugContext` walks frames and exposes locals/upvalues through ordinary
+checked stack values; no raw `lua_State` or `lua_Debug` pointer is public.
+Keep the returned `DebugHookGuard` and call `restore_with_frame` to restore the
+previous hook, mask, and count. See
+[`examples/debug-hook`](examples/debug-hook/src/lib.rs).
+
 ## Engine feature
 
 ```toml

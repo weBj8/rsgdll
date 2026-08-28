@@ -30,6 +30,16 @@ pub enum LuaError {
     CountOverflow,
     /// Closure upvalues are one-based.
     InvalidUpvaluePosition,
+    /// Debug stack, local, and upvalue positions are one-based or non-negative.
+    InvalidDebugPosition,
+    /// This module already owns one Lua debug hook on the current thread.
+    DebugHookAlreadyInstalled,
+    /// A debug hook guard was used with another Lua state.
+    DebugHookWrongState,
+    /// Lua rejected a debug hook installation or restoration.
+    DebugHookInstallFailed,
+    /// Lua could not populate requested debug frame information.
+    DebugInfoUnavailable,
     /// A state-owned value was used with a different Lua state.
     WrongState,
     /// The C++ firewall could not complete one Lua operation.
@@ -100,6 +110,20 @@ impl fmt::Display for LuaError {
             Self::CountOverflow => formatter.write_str("value count exceeds the ABI integer limit"),
             Self::InvalidUpvaluePosition => {
                 formatter.write_str("closure upvalue positions start at one")
+            }
+            Self::InvalidDebugPosition => formatter
+                .write_str("debug positions must be positive and stack levels non-negative"),
+            Self::DebugHookAlreadyInstalled => {
+                formatter.write_str("this module already owns a Lua debug hook")
+            }
+            Self::DebugHookWrongState => {
+                formatter.write_str("debug hook guard belongs to a different Lua state")
+            }
+            Self::DebugHookInstallFailed => {
+                formatter.write_str("Lua rejected the debug hook configuration")
+            }
+            Self::DebugInfoUnavailable => {
+                formatter.write_str("Lua debug frame information is unavailable")
             }
             Self::WrongState => formatter.write_str("Lua value belongs to a different state"),
             Self::ProtectedOperation => formatter.write_str("protected Lua operation failed"),

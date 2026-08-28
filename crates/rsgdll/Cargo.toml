@@ -9,6 +9,7 @@ readme = "../../README.md"
 
 [features]
 default = []
+debug = ["rsgdll-lua/debug"]
 engine = ["dep:rsgdll-engine"]
 sigscan = ["dep:rsgdll-sigscan"]
 detour = ["sigscan", "dep:rsgdll-detour"]
@@ -17,7 +18,7 @@ async = ["dep:rsgdll-async"]
 serde = ["rsgdll-lua/serde"]
 backtrace = ["rsgdll-module/backtrace"]
 raw = []
-full = ["engine", "hook", "async", "serde", "backtrace"]
+full = ["debug", "engine", "hook", "async", "serde", "backtrace"]
 
 [dependencies]
 rsgdll-lua.workspace = true

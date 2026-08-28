@@ -114,6 +114,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsgdll-debug-hook-example"
+version = "0.1.0"
+dependencies = [
+ "rsgdll",
+]
+
+[[package]]
 name = "rsgdll-detour"
 version = "0.1.0"
 dependencies = [

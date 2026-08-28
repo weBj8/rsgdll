@@ -3,6 +3,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod convert;
+#[cfg(feature = "debug")]
+mod debug;
 mod error;
 mod function;
 mod lua;
@@ -17,6 +19,11 @@ mod table;
 mod userdata;
 
 pub use convert::{FromLua, IntoLua};
+#[cfg(feature = "debug")]
+pub use debug::{
+    DebugContext, DebugEvent, DebugFrame, DebugFrameInfo, DebugHook, DebugHookGuard, DebugLocal,
+    DebugMask, DebugUpvalue,
+};
 pub use error::{LuaError, LuaResult};
 pub use function::LuaFunction;
 pub use lua::Lua;

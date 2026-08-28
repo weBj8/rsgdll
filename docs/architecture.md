@@ -186,6 +186,7 @@ Core Lua/module functionality is always present and therefore is **not** represe
 Design toward these public capabilities:
 
 ```text
+debug
 engine
 sigscan
 detour
@@ -200,6 +201,9 @@ full
 Rules:
 
 ```text
+debug
+    enables checked Lua debug hooks, frames, locals, and upvalues
+
 engine
     enables Source engine integration
 
@@ -229,6 +233,33 @@ full
     enables normal optional capabilities
     but does NOT implicitly enable raw
 ```
+
+## Checked Lua debugger boundary
+
+The default-disabled `debug` feature stays inside existing crates:
+
+```text
+rsgdll facade
+    -> rsgdll-lua checked callback-scoped views
+    -> rsgdll-bridge protected hook callback context
+    -> pinned LuaJIT debug C API
+```
+
+No debugger crate or raw-state escape hatch is added. `RawLuaDebug` and exact
+event/mask constants live in `rsgdll-abi`; ordinary users receive
+`DebugContext`, `DebugFrame`, `DebugLocal`, and `DebugUpvalue`.
+
+The bridge installs one native hook trampoline. It prepares the same protected
+operation context used by normal callbacks before entering Rust, so checked
+value pushes remain protected and debugger-triggered Lua execution cannot
+re-enter the hook. The Rust dispatcher catches panics before returning to C++.
+
+`DebugHookGuard` captures the prior hook, mask, and count. Restoration is
+explicit and requires the originating checked Lua callback frame. `Drop`
+cannot safely call a VM owned and destroyed by Garry's Mod, so discarding an
+active guard intentionally does not dereference its stored state identity.
+Hook frames and local/upvalue guards remain callback-lifetime-bound; owned
+`DebugFrameInfo` is copied before that lifetime ends.
 
 Do not represent platforms as Cargo features.
 

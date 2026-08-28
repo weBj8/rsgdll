@@ -240,6 +240,34 @@ return {
             end
         },
         {
+            name = "installs inspects and restores a real Lua debug hook",
+            func = function()
+                local previousEvents = 0
+                local rsgdebug_upvalue_probe = 23
+                local function probe()
+                    local rsgdebug_local_probe = 19
+                    return rsgdebug_local_probe + rsgdebug_upvalue_probe
+                end
+
+                debug.sethook(function()
+                    previousEvents = previousEvents + 1
+                end, "l")
+                expect(module.debug_attach()).to.beTrue()
+                expect(probe()).to.equal(42)
+
+                local events, localValue, upvalueValue = module.debug_observation()
+                expect(events > 0).to.beTrue()
+                expect(localValue).to.equal(19)
+                expect(upvalueValue).to.equal(23)
+                expect(module.debug_detach()).to.beTrue()
+
+                local before = previousEvents
+                probe()
+                debug.sethook()
+                expect(previousEvents > before).to.beTrue()
+            end
+        },
+        {
             name = "returns Result Ok values",
             func = function()
                 expect(module.result_ok()).to.equal("ok")

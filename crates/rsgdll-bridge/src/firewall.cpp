@@ -11,6 +11,9 @@ static decltype(auto) call_lua(void *lua_base, std::size_t slot, Arguments... ar
 }
 
 static std::atomic<Dispatcher> dispatcher{nullptr};
+#ifdef RSGDLL_DEBUG_NATIVE
+static std::atomic<DebugDispatcher> debug_dispatcher{nullptr};
+#endif
 static std::atomic<const AbiLayout *> abi_layout{nullptr};
 static constexpr std::uint32_t registration_capacity = 256;
 static constexpr std::int32_t lua_multret = -1;
@@ -341,6 +344,26 @@ extern "C" int rsgdll_bridge_trampoline(LuaState *state);
 extern "C" void rsgdll_bridge_set_dispatcher(Dispatcher value) {
     dispatcher.store(value, std::memory_order_release);
 }
+
+#ifdef RSGDLL_DEBUG_NATIVE
+extern "C" void rsgdll_bridge_debug_set_dispatcher(DebugDispatcher value) {
+    debug_dispatcher.store(value, std::memory_order_release); }
+
+extern "C" void rsgdll_bridge_debug_hook(LuaState *state, void *record) {
+    if (protected_context != nullptr || record == nullptr) {
+        return;
+    }
+    void *base = state_lua_base(state);
+    if (base == nullptr || !prepare_context(state, base)) {
+        return;
+    }
+    const DebugDispatcher registered = debug_dispatcher.load(std::memory_order_acquire);
+    if (registered != nullptr) {
+        registered(state, record);
+    }
+    finish_context(protected_context);
+}
+#endif
 
 static void raise_bridge_error(void *lua_base, const char *message) {
     if (lua_base == nullptr) {

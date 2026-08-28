@@ -80,6 +80,8 @@ fn generated_header(
          #define RSGDLL_LUA_CALL\n\
          #endif\n\
          \nusing Dispatcher = DispatchResult (*)(LuaState *, char *, std::uint32_t, ReturnBuffer *);\n\
+         using DebugDispatcher = void (*)(LuaState *, void *);\n\
+         using LuaHook = void (*)(LuaState *, void *);\n\
          using ThrowError = void (RSGDLL_LUA_CALL *)(void *, const char *);\n\
          using CreateTable = void (RSGDLL_LUA_CALL *)(void *);\n\
          using RawSet = void (RSGDLL_LUA_CALL *)(void *, std::int32_t);\n\

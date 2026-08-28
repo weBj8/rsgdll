@@ -25,12 +25,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     if std::env::var_os("CARGO_FEATURE_TEST_SUPPORT").is_some() {
         build.define("RSGDLL_TEST_SUPPORT", None);
     }
+    if std::env::var_os("CARGO_FEATURE_DEBUG").is_some()
+        && std::env::var_os("CARGO_FEATURE_TEST_SUPPORT").is_none()
+    {
+        build.define("RSGDLL_DEBUG_NATIVE", None);
+        #[cfg(target_os = "linux")]
+        println!("cargo::rustc-link-lib=dl");
+    }
     build.compile("rsgdll_bridge");
 
     println!("cargo::rerun-if-changed=abi_header.rs");
     println!("cargo::rerun-if-changed=src/firewall.cpp");
     println!("cargo::rerun-if-changed=src/lib.rs");
     println!("cargo::rerun-if-env-changed=CARGO_FEATURE_TEST_SUPPORT");
+    println!("cargo::rerun-if-env-changed=CARGO_FEATURE_DEBUG");
     Ok(())
 }
 

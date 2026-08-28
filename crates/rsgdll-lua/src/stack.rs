@@ -297,6 +297,11 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
     pub const fn lua(&self) -> &Lua<'lua> {
         self.lua
     }
+
+    #[cfg(feature = "debug")]
+    pub(crate) fn lua_mut(&mut self) -> &mut Lua<'lua> {
+        self.lua
+    }
 }
 
 impl Drop for StackFrame<'_, '_> {

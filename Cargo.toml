@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "examples/hello-module", "xtask"]
+members = ["crates/*", "examples/debug-hook", "examples/hello-module", "xtask"]
 resolver = "3"
 
 [workspace.package]
