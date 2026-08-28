@@ -23,8 +23,8 @@ than selecting an ABI outside the pinned upstream header.
 
 The optional `engine` feature is build-supported on all four targets and uses
 the selected target's C++ calling convention and loaded-library API. Its real
-GMod runtime gate currently covers Linux x86_64. Optional `detour`, `hook`,
-and therefore `full` retain their narrower support independently.
+GMod runtime gates cover Linux x86 and x86_64. Optional `detour`, `hook`, and
+therefore `full` retain their narrower support independently.
 
 The xtask knows GMod's server/client filenames for Linux x86, Linux x86_64,
 Windows x86, and Windows x86_64. Filename generation is packaging support,
