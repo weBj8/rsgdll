@@ -154,6 +154,7 @@ dependencies = [
  "rsgdll-abi",
  "rsgdll-bridge",
  "rsgdll-platform",
+ "rsgdll-runtime",
  "serde",
  "serde_json",
  "static_assertions",

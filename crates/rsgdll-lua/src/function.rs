@@ -68,4 +68,49 @@ impl<'lua> LuaFunction<'lua> {
         })();
         frame.rollback_on_error(entry_top, result)
     }
+
+    /// Calls this function and captures its single result in the registry.
+    pub fn call_reference<A>(
+        &self,
+        frame: &mut StackFrame<'_, 'lua>,
+        arguments: A,
+    ) -> LuaResult<RegistryReference<'lua>>
+    where
+        A: IntoLuaMulti,
+    {
+        let entry_top = frame.top();
+        let argument_count =
+            i32::try_from(arguments.count()).map_err(|_| LuaError::CountOverflow)?;
+        let result = (|| {
+            self.push(frame)?;
+            arguments.push(frame)?;
+            let actual_arguments = frame
+                .top()
+                .checked_sub(entry_top)
+                .and_then(|count| count.checked_sub(1))
+                .ok_or(LuaError::CountOverflow)?;
+            if actual_arguments != argument_count {
+                return Err(LuaError::ArgumentCountMismatch {
+                    expected: argument_count,
+                    actual: actual_arguments,
+                });
+            }
+            let status = protected::pcall(frame.context(), argument_count, 1)?;
+            if status != 0 {
+                let message = if frame.value_type(-1) == LuaType::STRING {
+                    LuaBytes::from_lua(frame.lua(), -1)?
+                } else {
+                    LuaBytes::from(
+                        format!("Lua error value has type {}", frame.value_type(-1).0).into_bytes(),
+                    )
+                };
+                frame.pop(1)?;
+                return Err(LuaError::Call { status, message });
+            }
+            let output = frame.create_reference(-1);
+            frame.pop(1)?;
+            output
+        })();
+        frame.rollback_on_error(entry_top, result)
+    }
 }

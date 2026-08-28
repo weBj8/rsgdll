@@ -86,30 +86,7 @@ impl EngineLibrary {
     /// compatible Source dedicated server with its trusted engine binary
     /// already loaded.
     pub(crate) unsafe fn open_engine() -> Result<Self, LibraryError> {
-        let maps = std::fs::read_to_string("/proc/self/maps").map_err(|error| {
-            LibraryError::new("inspect loaded Source libraries", error.to_string())
-        })?;
-        let library_name = ENGINE_LIBRARY.to_string_lossy();
-        let path = maps
-            .lines()
-            .filter_map(|line| line.split_ascii_whitespace().last())
-            .find(|path| {
-                Path::new(path)
-                    .file_name()
-                    .is_some_and(|name| name == library_name.as_ref())
-            })
-            .ok_or_else(|| {
-                LibraryError::new(
-                    "locate loaded Source engine",
-                    format!("{library_name} is not mapped into this process"),
-                )
-            })?;
-        let path = CString::new(path).map_err(|_| {
-            LibraryError::new(
-                "locate loaded Source engine",
-                "mapped library path contains a NUL byte".to_owned(),
-            )
-        })?;
+        let path = loaded_library_path(ENGINE_LIBRARY)?;
         // SAFETY: the caller accepts the loading and ABI requirements above.
         unsafe { Self::open(&path) }
     }
@@ -160,6 +137,57 @@ impl Drop for EngineLibrary {
         // SAFETY: this handle came from `dlopen` and is closed exactly once.
         unsafe { dlclose(self.handle.as_ptr()) };
     }
+}
+
+/// Resolves one C-exported symbol already loaded into the current process.
+///
+/// # Safety
+///
+/// Caller must convert the result only to the symbol's exact ABI type.
+pub(crate) unsafe fn process_symbol(
+    library: &CStr,
+    symbol: &CStr,
+) -> Result<NonNull<c_void>, LibraryError> {
+    let path = loaded_library_path(library)?;
+    // SAFETY: `RTLD_NOLOAD` only acquires a handle to the already-mapped
+    // trusted Source library identified above.
+    let handle = NonNull::new(unsafe { dlopen(path.as_ptr(), RTLD_NOW | RTLD_NOLOAD) })
+        .ok_or_else(|| LibraryError::new("load Source library", loader_error()))?;
+    // SAFETY: POSIX specifies a null `dlerror` call clears prior state.
+    unsafe { dlerror() };
+    // SAFETY: `handle` is live and `symbol` is NUL-terminated.
+    let resolved = NonNull::new(unsafe { dlsym(handle.as_ptr(), symbol.as_ptr()) });
+    let error = resolved.is_none().then(loader_error);
+    // SAFETY: this releases only our `RTLD_NOLOAD` reference; Source retains
+    // the original mapping for the process lifetime.
+    unsafe { dlclose(handle.as_ptr()) };
+    resolved.ok_or_else(|| LibraryError::new("resolve Source symbol", error.unwrap_or_default()))
+}
+
+fn loaded_library_path(library: &CStr) -> Result<CString, LibraryError> {
+    let maps = std::fs::read_to_string("/proc/self/maps")
+        .map_err(|error| LibraryError::new("inspect loaded Source libraries", error.to_string()))?;
+    let library_name = library.to_string_lossy();
+    let path = maps
+        .lines()
+        .filter_map(|line| line.split_ascii_whitespace().last())
+        .find(|path| {
+            Path::new(path)
+                .file_name()
+                .is_some_and(|name| name == library_name.as_ref())
+        })
+        .ok_or_else(|| {
+            LibraryError::new(
+                "locate loaded Source library",
+                format!("{library_name} is not mapped into this process"),
+            )
+        })?;
+    CString::new(path).map_err(|_| {
+        LibraryError::new(
+            "locate loaded Source library",
+            "mapped library path contains a NUL byte".to_owned(),
+        )
+    })
 }
 
 #[derive(Debug, Eq, PartialEq)]

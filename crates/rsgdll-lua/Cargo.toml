@@ -14,6 +14,7 @@ serde = ["dep:serde", "dep:serde_json"]
 [dependencies]
 rsgdll-bridge.workspace = true
 rsgdll-platform.workspace = true
+rsgdll-runtime.workspace = true
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 

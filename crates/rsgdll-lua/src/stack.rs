@@ -5,6 +5,8 @@ use crate::{
     RegistryReference, UserDataType, protected,
 };
 
+const GLOBAL_INDEX: i32 = -10_002;
+
 /// Checked access to one borrowed Lua stack.
 pub struct Stack<'stack, 'lua> {
     lua: &'stack mut Lua<'lua>,
@@ -118,6 +120,15 @@ impl<'guard, 'lua> StackFrame<'guard, 'lua> {
         }
         let reference = self.create_reference(index)?;
         Ok(LuaFunction::new(reference))
+    }
+
+    /// Captures one named global function without invoking metamethods.
+    pub fn global_function(&mut self, name: &str) -> LuaResult<LuaFunction<'lua>> {
+        self.push(name)?;
+        self.raw_get(GLOBAL_INDEX)?;
+        let function = self.function(-1);
+        self.pop(1)?;
+        function
     }
 
     /// Registers or retrieves one named Rust userdata type.

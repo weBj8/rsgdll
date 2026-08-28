@@ -11,6 +11,7 @@ use rsgdll_platform::__private::{
     LUA_MASK_CALL, LUA_MASK_COUNT, LUA_MASK_LINE, LUA_MASK_RETURN, LuaHook, RawLuaDebug,
     RawLuaState,
 };
+use rsgdll_runtime::MainThread;
 
 use crate::{FromLua, IntoLua, Lua, LuaBytes, LuaError, LuaResult, LuaType, StackFrame};
 
@@ -272,6 +273,14 @@ impl<'event> DebugContext<'event> {
     #[must_use]
     pub const fn event(&self) -> DebugEvent {
         self.event
+    }
+
+    /// Runs a closure with proof that this debug callback owns the GMod main thread.
+    pub fn with_main_thread<R>(&mut self, callback: impl FnOnce(&mut MainThread) -> R) -> R {
+        // SAFETY: `DebugContext` is created only by debug-hook trampoline code
+        // executing synchronously on the Lua-owning GMod main thread.
+        let mut main_thread = unsafe { rsgdll_runtime::__private::main_thread_from_callback() };
+        callback(&mut main_thread)
     }
 
     /// Starts a checked stack guard scoped to this debug callback.
