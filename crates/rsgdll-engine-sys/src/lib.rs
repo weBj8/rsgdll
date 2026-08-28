@@ -32,7 +32,7 @@ pub const CREATE_INTERFACE_SYMBOL: &CStr = c"CreateInterface";
 pub const ENGINE_LIBRARIES: &[&CStr] = &[c"engine_srv.so", c"engine.so"];
 /// Engine library candidates used by GMod client and dedicated-server builds.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub const ENGINE_LIBRARIES: &[&CStr] = &[c"engine.so", c"engine_srv.so"];
+pub const ENGINE_LIBRARIES: &[&CStr] = &[c"engine.so", c"engine_client.so", c"engine_srv.so"];
 /// Engine library candidates used by GMod client and dedicated-server builds.
 #[cfg(target_os = "windows")]
 pub const ENGINE_LIBRARIES: &[&CStr] = &[c"engine.dll", c"engine_srv.dll"];
@@ -42,7 +42,7 @@ pub const ENGINE_LIBRARIES: &[&CStr] = &[c"engine.dll", c"engine_srv.dll"];
 pub const TIER0_LIBRARIES: &[&CStr] = &[c"libtier0_srv.so", c"libtier0.so"];
 /// Tier-zero library candidates used by GMod client and dedicated-server builds.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub const TIER0_LIBRARIES: &[&CStr] = &[c"libtier0.so", c"libtier0_srv.so"];
+pub const TIER0_LIBRARIES: &[&CStr] = &[c"libtier0.so", c"libtier0_client.so", c"libtier0_srv.so"];
 /// Tier-zero library candidates used by GMod client and dedicated-server builds.
 #[cfg(target_os = "windows")]
 pub const TIER0_LIBRARIES: &[&CStr] = &[c"tier0.dll", c"tier0_s.dll"];
@@ -145,3 +145,15 @@ pub struct RawLoggingListenerVTable {
 
 pub type RegisterLoggingListenerFn = unsafe extern "C" fn(listener: *mut RawLoggingListener);
 pub type UnregisterLoggingListenerFn = unsafe extern "C" fn(listener: *mut RawLoggingListener);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn linux_x86_64_supports_single_player_libraries() {
+        assert!(ENGINE_LIBRARIES.contains(&c"engine_client.so"));
+        assert!(TIER0_LIBRARIES.contains(&c"libtier0_client.so"));
+    }
+}
