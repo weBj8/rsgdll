@@ -29,8 +29,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         && std::env::var_os("CARGO_FEATURE_TEST_SUPPORT").is_none()
     {
         build.define("RSGDLL_DEBUG_NATIVE", None);
-        #[cfg(target_os = "linux")]
-        println!("cargo::rustc-link-lib=dl");
+        if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+            println!("cargo::rustc-link-lib=dl");
+        }
     }
     build.compile("rsgdll_bridge");
 
