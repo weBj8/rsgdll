@@ -781,3 +781,31 @@ fn debug_hook_can_restore_itself_from_its_callback() {
         hook.borrow_mut().take();
     });
 }
+
+#[cfg(feature = "debug")]
+#[test]
+fn debug_hook_ownership_can_end_after_lua_state_closes() {
+    let mut fixture = Fixture::new(Vec::new(), Vec::new());
+    let guard = {
+        // SAFETY: fixture owns a live state and matching fake vtable.
+        let mut lua = unsafe { Lua::from_raw(fixture.state()) }.expect("valid fixture");
+        lua.install_debug_hook(DebugMask::LINES, 7, inspect_debug_hook)
+            .expect("hook install")
+    };
+    drop(fixture);
+
+    guard.abandon_after_state_close();
+
+    let mut replacement = Fixture::new(Vec::new(), Vec::new());
+    let mut replacement_guard = {
+        // SAFETY: replacement owns a live state and matching fake vtable.
+        let mut lua = unsafe { Lua::from_raw(replacement.state()) }.expect("valid replacement");
+        lua.install_debug_hook(DebugMask::LINES, 7, inspect_debug_hook)
+            .expect("replacement hook install")
+    };
+    // SAFETY: replacement still owns the same live state.
+    let mut lua = unsafe { Lua::from_raw(replacement.state()) }.expect("valid replacement");
+    replacement_guard
+        .restore(&mut lua)
+        .expect("replacement hook restore");
+}

@@ -129,6 +129,20 @@ impl DebugHookGuard {
         if installed == 0 {
             return Err(LuaError::DebugHookInstallFailed);
         }
+        self.release_ownership();
+        self.active = false;
+        Ok(())
+    }
+
+    /// Releases Rust-side ownership after the originating Lua state has closed.
+    ///
+    /// This does not access Lua or restore the previous hook.
+    pub fn abandon_after_state_close(mut self) {
+        self.release_ownership();
+        self.active = false;
+    }
+
+    fn release_ownership(&self) {
         ACTIVE_HOOK.with(|active| {
             if active
                 .get()
@@ -137,8 +151,6 @@ impl DebugHookGuard {
                 active.set(None);
             }
         });
-        self.active = false;
-        Ok(())
     }
 
     /// Restores this hook through an ordinary module callback frame.
