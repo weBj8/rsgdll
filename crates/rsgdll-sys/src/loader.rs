@@ -80,7 +80,7 @@ pub fn pin_self(addr: *const c_void) -> bool {
     path.and_then(|p| p.to_str().ok())
         // SAFETY: re-opening an already loaded image with NODELETE; the handle is leaked on purpose.
         .and_then(|p| unsafe { Library::open(Some(p), RTLD_NOW | RTLD_NODELETE) }.ok())
-        .map(|lib| std::mem::forget(lib))
+        .map(std::mem::forget)
         .is_some()
 }
 

@@ -7,3 +7,9 @@ license.workspace = true
 
 [dependencies]
 rsgdll-sys.workspace = true
+
+[features]
+backtrace = []
+
+[dev-dependencies]
+libloading.workspace = true
