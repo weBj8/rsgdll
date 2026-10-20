@@ -104,6 +104,11 @@ impl Error {
         Self::new(ErrorKind::Lua { message: message.into(), lua_traceback })
     }
 
+    /// Error from already formatted text (no backtrace is added).
+    pub fn preformatted(text: String) -> Self {
+        Self { kind: ErrorKind::Other(text.into()), context: Vec::new(), backtrace: None }
+    }
+
     pub fn state_closed() -> Self {
         Self::new(ErrorKind::StateClosed)
     }

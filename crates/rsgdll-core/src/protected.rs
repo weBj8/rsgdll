@@ -65,6 +65,8 @@ pub enum Op {
     XMove(*mut lua_State, *mut lua_State, c_int),
     /// `lua_checkstack` on another thread (main stack before `ILuaBase` pushes, spec §6.1a).
     CheckStackOf(*mut lua_State, c_int),
+    /// `luaL_loadbuffer(ptr, len, chunkname)`; a syntax error is raised as a Lua error.
+    Load(*const u8, usize, *const c_char),
     /// Arbitrary raw callback on this frame; must follow the same rules as this module.
     Raw(unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void), *mut c_void),
 }
@@ -181,6 +183,11 @@ unsafe fn step(a: &LuaApi, l: *mut lua_State, args: &Args, op: Op) {
             Op::CheckStackOf(t, n) => {
                 if (a.lua_checkstack)(t, n) == 0 {
                     (a.lua_pushstring)(l, c"stack overflow (rsgdll, main thread)".as_ptr());
+                    (a.lua_error)(l);
+                }
+            }
+            Op::Load(p, n, name) => {
+                if (a.luaL_loadbuffer)(l, p.cast(), n, name) != LUA_OK {
                     (a.lua_error)(l);
                 }
             }

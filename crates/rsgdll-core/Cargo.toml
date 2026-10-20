@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 rsgdll-sys.workspace = true
+linkme.workspace = true
 indexmap = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["std"] }
 

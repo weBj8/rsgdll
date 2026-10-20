@@ -1,0 +1,5 @@
+error: lua!:1:11: unexpected symbol near '='
+ --> tests/ui/fail_syntax.rs:6:15
+  |
+6 |     lua!(lua, r#"local x = = 1"#)
+  |               ^^^^^^^^^^^^^^^^^^

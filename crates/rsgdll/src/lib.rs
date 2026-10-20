@@ -2,7 +2,13 @@
 
 pub use rsgdll_core::{Context, ConvError, Error, ErrorKind, Lua, Result, anyhow, set_backtrace};
 pub use rsgdll_core::conv::*;
-pub use rsgdll_macros::{LuaUserData, LuaValue};
+pub use rsgdll_macros::{LuaUserData, LuaValue, function, interface, lua, methods, module, postclose, postopen, preclose, preopen};
+pub use rsgdll_core::{Realm, interface::{LuaInterface, LuaShared, RealmInterface}};
+
+/// Engine interfaces (spec §5.2).
+pub mod interfaces {
+    pub use rsgdll_core::interface::{create_interface, lua_shared};
+}
 
 #[cfg(feature = "serde")]
 pub use rsgdll_core::conv::serde::LuaSerde;
@@ -19,6 +25,6 @@ pub mod prelude {
     pub use crate::{
         Angle, Color, Context, Entity, EntityRef, Error, ErrorKind, Lua, LuaBytes, LuaFunction,
         LuaTable, LuaUd, LuaUserData, LuaValue, Nil, Player, PlayerRef, Result, SteamId64,
-        Variadic, Vector, anyhow,
+        Variadic, Vector, anyhow, lua,
     };
 }

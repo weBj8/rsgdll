@@ -1,0 +1,5 @@
+error: 'ScrW' is client-only and this crate does not build the client realm
+ --> tests/ui/fail_client_call_in_server.rs:6:22
+  |
+6 |     lua!(lua, return ScrW())
+  |                      ^^^^

@@ -62,7 +62,7 @@ pub fn format_error(module: &str, path: &str, message: &str) -> String {
 }
 
 /// Pushes `msg` (protected); falls back to the pre-interned OOM message.
-fn push_message(lua: &Lua, msg: &str) {
+pub fn push_message(lua: &Lua, msg: &str) {
     let base = lua.top();
     if lua.run(&[], &[Op::PushStr(msg.as_ptr(), msg.len())]).is_err() {
         // SAFETY: shrinking + rawgeti never allocate.

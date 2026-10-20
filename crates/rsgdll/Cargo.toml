@@ -13,9 +13,13 @@ rsgdll-gmod.workspace = true
 linkme.workspace = true
 
 [features]
+server = []
+client = []
+menu = []
 backtrace = ["rsgdll-core/backtrace"]
 serde = ["rsgdll-core/serde"]
 indexmap = ["rsgdll-core/indexmap"]
 
 [dev-dependencies]
+trybuild.workspace = true
 libloading.workspace = true

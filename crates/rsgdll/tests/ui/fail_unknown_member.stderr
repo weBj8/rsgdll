@@ -1,0 +1,5 @@
+error: lua!: unknown member 'net.WriteStrng' (did you mean 'net.WriteString'?)
+ --> tests/ui/fail_unknown_member.rs:6:15
+  |
+6 |     lua!(lua, net.WriteStrng("x"))
+  |               ^^^
