@@ -5,6 +5,7 @@ pub use rsgdll_core::conv::*;
 pub use rsgdll_macros::{LuaUserData, LuaValue, function, interface, lua, methods, module, postclose, postopen, preclose, preopen};
 pub use rsgdll_core::{Realm, interface::{LuaInterface, LuaShared, RealmInterface}};
 
+pub use rsgdll_gmod::hook_marker;
 pub use rsgdll_gmod::{concommand, cvars, hook, hooks, net, timer};
 /// Attribute forms (`#[rsgdll::hook(Think)]`, `#[rsgdll::timer(every = "1s")]`); macros and
 /// modules live in separate namespaces, so `rsgdll::hook::add` keeps working.

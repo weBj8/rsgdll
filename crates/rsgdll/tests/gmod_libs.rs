@@ -56,3 +56,15 @@ fn timers() {
     timer::remove(&lua, "t.tick").unwrap();
     assert!(!timer::exists(&lua, "t.tick").unwrap());
 }
+
+rsgdll::hook_marker!(Chat2 = "PlayerSay": (Option<rsgdll::PlayerRef<'a>>, String) -> Option<String>);
+
+#[test]
+fn custom_marker_with_borrowed_args() {
+    let (l, lua) = common::state();
+    common::exec(l, MOCK).unwrap();
+    hook::add::<Chat2, _>(&lua, "t.chat2", |_, (ply, text)| Ok((ply.is_none() && text.starts_with("!ping")).then(|| "pong".into()))).unwrap();
+    assert_eq!(common::exec(l, "return hook.Run('PlayerSay', nil, '!ping')").unwrap(), "pong");
+    let r = hook::run::<Chat2>(&lua, (None, "!ping".into())).unwrap();
+    assert_eq!(r.as_deref(), Some("pong"));
+}

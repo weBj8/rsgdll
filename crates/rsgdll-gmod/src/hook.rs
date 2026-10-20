@@ -132,3 +132,24 @@ impl<'a> HookArgCompat<Option<rsgdll_core::conv::EntityRef<'a>>> for rsgdll_core
 /// Compile-time check used by the attribute macro.
 #[doc(hidden)]
 pub fn compat<P: HookArgCompat<A>, A>(_: &A) {}
+
+/// Declares a typed marker for a custom/addon hook, so borrowed args (`PlayerRef<'a>`) work
+/// with [`add`] / [`run`] (spec §10.3, decisions log §14). `'a` is the per-call lifetime.
+///
+/// ```ignore
+/// rsgdll::hook_marker!(pub MyEvent = "MyAddon.Event": (Option<PlayerRef<'a>>, String) -> Option<String>);
+/// hook::add::<MyEvent, _>(lua, "id", |_, (ply, text)| Ok(None))?;
+/// ```
+#[macro_export]
+macro_rules! hook_marker {
+    ($vis:vis $marker:ident = $name:literal : ($($arg:ty),* $(,)?) -> $ret:ty) => {
+        $vis struct $marker;
+        impl $crate::hook::Hook for $marker {
+            const NAME: &'static str = $name;
+            const REALM: ::core::option::Option<$crate::__Realm> = ::core::option::Option::None;
+            const ARITY: usize = [$(::core::stringify!($arg)),*].len();
+            type Args<'a> = ($($arg,)*);
+            type Ret = $ret;
+        }
+    };
+}

@@ -12,6 +12,8 @@ pub mod hooks {
     pub use crate::hooks_gen::*;
 }
 
+#[doc(hidden)]
+pub use rsgdll_core::Realm as __Realm;
 pub use misc::{concommand, cvars, error_no_halt, msg, net, print};
 
 use linkme::distributed_slice;
