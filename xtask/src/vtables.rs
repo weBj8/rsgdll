@@ -35,22 +35,37 @@ pub struct Class {
 
 /// Splits on top-level commas (function-pointer params contain nested parens).
 fn split_top(s: &str) -> Vec<String> {
-    let (mut out, cur, _) = s.chars().fold((Vec::new(), String::new(), 0i32), |(mut out, mut cur, depth), c| {
-        match c {
+    let (mut out, cur, _) = s.chars().fold(
+        (Vec::new(), String::new(), 0i32),
+        |(mut out, mut cur, depth), c| match c {
             ',' if depth == 0 => {
                 out.push(std::mem::take(&mut cur));
                 (out, cur, depth)
             }
-            '(' => { cur.push(c); (out, cur, depth + 1) }
-            ')' => { cur.push(c); (out, cur, depth - 1) }
-            _ => { cur.push(c); (out, cur, depth) }
-        }
-    });
+            '(' => {
+                cur.push(c);
+                (out, cur, depth + 1)
+            }
+            ')' => {
+                cur.push(c);
+                (out, cur, depth - 1)
+            }
+            _ => {
+                cur.push(c);
+                (out, cur, depth)
+            }
+        },
+    );
     out.push(cur);
-    out.into_iter().map(|p| p.trim().to_owned()).filter(|p| !p.is_empty() && p != "void").collect()
+    out.into_iter()
+        .map(|p| p.trim().to_owned())
+        .filter(|p| !p.is_empty() && p != "void")
+        .collect()
 }
 
-const TYPE_WORDS: &[&str] = &["int", "char", "bool", "double", "float", "long", "void", "unsigned", "const", "size_t"];
+const TYPE_WORDS: &[&str] = &[
+    "int", "char", "bool", "double", "float", "long", "void", "unsigned", "const", "size_t",
+];
 
 /// Drops default value and parameter name, normalising pointer spacing.
 fn param_type(p: &str) -> String {
@@ -61,7 +76,11 @@ fn param_type(p: &str) -> String {
     let p = p.replace('*', " * ").replace('&', " & ");
     let toks: Vec<&str> = p.split_whitespace().collect();
     let keep = match toks.last() {
-        Some(last) if toks.len() >= 2 && !TYPE_WORDS.contains(last) && !["*", "&"].contains(last) => toks.len() - 1,
+        Some(last)
+            if toks.len() >= 2 && !TYPE_WORDS.contains(last) && !["*", "&"].contains(last) =>
+        {
+            toks.len() - 1
+        }
         _ => toks.len(),
     };
     toks[..keep].join(" ").replace(" *", "*").replace(" &", "&")
@@ -80,8 +99,17 @@ pub fn parse_decl(decl: &str) -> Option<Method> {
     Some(Method {
         destructor: name.starts_with('~'),
         name: name.trim_start_matches('~').to_owned(),
-        ret: toks.join(" ").replace(" *", "*").replace(" &", "&").trim().to_owned(),
-        params: params.iter().filter(|p| *p != "...").map(|p| param_type(p)).collect(),
+        ret: toks
+            .join(" ")
+            .replace(" *", "*")
+            .replace(" &", "&")
+            .trim()
+            .to_owned(),
+        params: params
+            .iter()
+            .filter(|p| *p != "...")
+            .map(|p| param_type(p))
+            .collect(),
         variadic,
     })
 }
@@ -97,10 +125,17 @@ pub fn parse_header(src: &str) -> Vec<Class> {
                 None if line.starts_with("virtual") => Some(line.to_owned()),
                 None => {
                     if let Some(rest) = line.strip_prefix("class ")
-                        && !rest.ends_with(';') {
-                            let name = rest.split(|c: char| !c.is_alphanumeric() && c != '_').next().unwrap_or("");
-                            classes.push(Class { name: name.to_owned(), methods: Vec::new() });
-                        }
+                        && !rest.ends_with(';')
+                    {
+                        let name = rest
+                            .split(|c: char| !c.is_alphanumeric() && c != '_')
+                            .next()
+                            .unwrap_or("");
+                        classes.push(Class {
+                            name: name.to_owned(),
+                            methods: Vec::new(),
+                        });
+                    }
                     None
                 }
             };
@@ -121,15 +156,25 @@ pub fn parse_header(src: &str) -> Vec<Class> {
 
 /// MSVC: overloads are grouped at the first declaration, in reverse declaration order.
 pub fn msvc_order(methods: &[Method]) -> Vec<Method> {
-    let firsts: Vec<&str> = methods.iter().map(|m| m.name.as_str()).fold(Vec::new(), |mut v, n| {
-        if !v.contains(&n) {
-            v.push(n);
-        }
-        v
-    });
+    let firsts: Vec<&str> = methods
+        .iter()
+        .map(|m| m.name.as_str())
+        .fold(Vec::new(), |mut v, n| {
+            if !v.contains(&n) {
+                v.push(n);
+            }
+            v
+        });
     firsts
         .iter()
-        .flat_map(|n| methods.iter().filter(move |m| m.name == *n).rev().cloned().collect::<Vec<_>>())
+        .flat_map(|n| {
+            methods
+                .iter()
+                .filter(move |m| m.name == *n)
+                .rev()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
@@ -160,7 +205,11 @@ fn rust_type(t: &str) -> Option<&'static str> {
 
 fn snake(n: &str) -> String {
     n.chars().enumerate().fold(String::new(), |mut s, (i, c)| {
-        let prev_lower = i > 0 && n[..i].chars().last().is_some_and(|p| p.is_lowercase() || p.is_ascii_digit());
+        let prev_lower = i > 0
+            && n[..i]
+                .chars()
+                .last()
+                .is_some_and(|p| p.is_lowercase() || p.is_ascii_digit());
         if c.is_uppercase() && prev_lower {
             s.push('_');
         }
@@ -182,7 +231,11 @@ fn field_names(methods: &[Method]) -> Vec<(Method, String)> {
                 (_, "Type") => "type_".to_owned(),
                 _ => snake(&m.name),
             };
-            let name = if count > 1 { format!("{base}_{}", nth + 1) } else { base };
+            let name = if count > 1 {
+                format!("{base}_{}", nth + 1)
+            } else {
+                base
+            };
             (m.clone(), name)
         })
         .collect()
@@ -193,14 +246,24 @@ fn field(m: &Method, name: &str) -> String {
     let ret = rust_type(&m.ret);
     match (params, ret, FORCED_PADDING.contains(&m.name.as_str())) {
         (Some(ps), Some(r), false) => {
-            let args = std::iter::once("*mut c_void").chain(ps).collect::<Vec<_>>().join(", ");
-            let ret = if r == "()" { String::new() } else { format!(" -> {r}") };
+            let args = std::iter::once("*mut c_void")
+                .chain(ps)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let ret = if r == "()" {
+                String::new()
+            } else {
+                format!(" -> {r}")
+            };
             match m.variadic {
                 true => format!("    pub {name}: unsafe extern \"C\" fn({args}, ...){ret},"),
                 false => format!("    pub {name}: vfn!(({args}){ret}),"),
             }
         }
-        _ => format!("    /// padding: `{}` (not callable from Rust)\n    pub {name}: Pad,", m.name),
+        _ => format!(
+            "    /// padding: `{}` (not callable from Rust)\n    pub {name}: Pad,",
+            m.name
+        ),
     }
 }
 
@@ -228,8 +291,16 @@ fn emit_struct(class: &Class, base: Option<&Class>, windows: bool) -> String {
         .into_iter()
         .chain(own_slots(class, windows))
         .collect();
-    let fields = field_names(&slots).iter().map(|(m, n)| field(m, n)).collect::<Vec<_>>().join("\n");
-    format!("/// {} slots\n#[repr(C)]\npub struct {}VTable {{\n{fields}\n}}\n", slots.len(), class.name)
+    let fields = field_names(&slots)
+        .iter()
+        .map(|(m, n)| field(m, n))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "/// {} slots\n#[repr(C)]\npub struct {}VTable {{\n{fields}\n}}\n",
+        slots.len(),
+        class.name
+    )
 }
 
 pub fn generate(dir: &Path) -> Result<String, String> {
@@ -240,7 +311,12 @@ pub fn generate(dir: &Path) -> Result<String, String> {
         .iter()
         .flat_map(|s| parse_header(s))
         .collect();
-    let find = |n: &str| classes.iter().find(|c| c.name == n).ok_or_else(|| format!("class {n} not found"));
+    let find = |n: &str| {
+        classes
+            .iter()
+            .find(|c| c.name == n)
+            .ok_or_else(|| format!("class {n} not found"))
+    };
     let emit = |windows: bool| -> Result<String, String> {
         CLASSES
             .iter()
@@ -265,14 +341,26 @@ pub fn generate(dir: &Path) -> Result<String, String> {
 }
 
 fn indent(s: &str) -> String {
-    s.lines().map(|l| if l.is_empty() { String::new() } else { format!("    {l}") }).collect::<Vec<_>>().join("\n")
+    s.lines()
+        .map(|l| {
+            if l.is_empty() {
+                String::new()
+            } else {
+                format!("    {l}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Shallow-fetches the pinned commit into `target/garrysmod_common`.
 pub fn fetch(root: &Path) -> Result<PathBuf, String> {
     let dir = root.join("target/garrysmod_common");
     let git = |args: &[&str]| -> Result<(), String> {
-        Command::new("git").args(args).current_dir(&dir).status()
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
             .map_err(|e| e.to_string())?
             .success()
             .then_some(())
@@ -296,19 +384,40 @@ mod tests {
     #[test]
     fn parses_decl() {
         let m = parse_decl("virtual const char* GetString( int iStackPos = -1, unsigned int* iOutLen = nullptr ) = 0;").unwrap();
-        assert_eq!((m.name.as_str(), m.ret.as_str()), ("GetString", "const char*"));
+        assert_eq!(
+            (m.name.as_str(), m.ret.as_str()),
+            ("GetString", "const char*")
+        );
         assert_eq!(m.params, vec!["int", "unsigned int*"]);
         let v = parse_decl("virtual void Msg( const char *fmt, ... ) = 0;").unwrap();
         assert!(v.variadic);
-        assert_eq!(parse_decl("virtual void SetType( unsigned char ) = 0;").unwrap().params, vec!["unsigned char"]);
-        assert!(parse_decl("virtual ~ILuaShared( ) = 0;").unwrap().destructor);
+        assert_eq!(
+            parse_decl("virtual void SetType( unsigned char ) = 0;")
+                .unwrap()
+                .params,
+            vec!["unsigned char"]
+        );
+        assert!(
+            parse_decl("virtual ~ILuaShared( ) = 0;")
+                .unwrap()
+                .destructor
+        );
     }
 
     #[test]
     fn msvc_groups_overloads_reversed() {
-        let m = |n: &str, p: &str| Method { name: n.into(), ret: "void".into(), params: vec![p.into()], variadic: false, destructor: false };
+        let m = |n: &str, p: &str| Method {
+            name: n.into(),
+            ret: "void".into(),
+            params: vec![p.into()],
+            variadic: false,
+            destructor: false,
+        };
         let order = msvc_order(&[m("A", "1"), m("S", "1"), m("B", "1"), m("S", "2")]);
-        let got: Vec<_> = order.iter().map(|x| format!("{}{}", x.name, x.params[0])).collect();
+        let got: Vec<_> = order
+            .iter()
+            .map(|x| format!("{}{}", x.name, x.params[0]))
+            .collect();
         assert_eq!(got, ["A1", "S2", "S1", "B1"]);
     }
 }

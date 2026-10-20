@@ -48,7 +48,10 @@ fn postclose() {
 
 #[rsgdll::function]
 fn lifecycle() -> Vec<String> {
-    LIFECYCLE.lock().map(|v| v.iter().map(|s| s.to_string()).collect()).unwrap_or_default()
+    LIFECYCLE
+        .lock()
+        .map(|v| v.iter().map(|s| s.to_string()).collect())
+        .unwrap_or_default()
 }
 
 // ---- exports ----
@@ -84,7 +87,9 @@ fn greet_opt(name: Option<String>) -> String {
 
 #[rsgdll::function]
 fn div_mod(a: i64, b: i64) -> Result<(i64, i64)> {
-    (b != 0).then(|| (a / b, a % b)).ok_or_else(|| anyhow!("division by zero"))
+    (b != 0)
+        .then(|| (a / b, a % b))
+        .ok_or_else(|| anyhow!("division by zero"))
 }
 
 // ---- conversion ----
@@ -112,7 +117,10 @@ struct Point {
 
 #[rsgdll::function]
 fn echo_config(c: Config) -> Config {
-    Config { retries: c.retries + 1, ..c }
+    Config {
+        retries: c.retries + 1,
+        ..c
+    }
 }
 
 #[rsgdll::function]
@@ -127,17 +135,30 @@ fn serde_point(p: LuaSerde<Point>) -> LuaSerde<Point> {
 
 #[rsgdll::function]
 fn vec_add(a: Vector, b: Vector) -> Vector {
-    Vector { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }
+    Vector {
+        x: a.x + b.x,
+        y: a.y + b.y,
+        z: a.z + b.z,
+    }
 }
 
 #[rsgdll::function]
 fn ang_flip(a: Angle) -> Angle {
-    Angle { p: -a.p, y: -a.y, r: -a.r }
+    Angle {
+        p: -a.p,
+        y: -a.y,
+        r: -a.r,
+    }
 }
 
 #[rsgdll::function]
 fn red() -> Color {
-    Color { r: 255, g: 0, b: 0, a: 255 }
+    Color {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    }
 }
 
 #[rsgdll::function]
@@ -204,11 +225,14 @@ fn drops() -> usize {
 #[rsgdll::function]
 fn lua_forms(lua: &Lua, x: i32) -> Result<(i32, String, i32)> {
     let n: i32 = lua!(lua, math.max($x, 3) + 1)?;
-    let (s, k): (String, i32) = lua!(lua, r#"
+    let (s, k): (String, i32) = lua!(
+        lua,
+        r#"
         local acc = 0
         for i = 1, 5 do if i == 3 then continue end acc = acc + i end
         return "x" .. $x, acc
-    "#)?;
+    "#
+    )?;
     Ok((n, s, k))
 }
 
@@ -218,7 +242,9 @@ fn interfaces(lua: &Lua) -> Result<(bool, bool, String)> {
     let iface = lua.interface()?;
     iface.run_string("showcase", "", "SHOWCASE_RUNSTRING = 42")?;
     let shared = rsgdll::interfaces::lua_shared()?;
-    let cross = shared.lua_interface(Realm::Server).ok_or_else(|| anyhow!("no server interface"))?;
+    let cross = shared
+        .lua_interface(Realm::Server)
+        .ok_or_else(|| anyhow!("no server interface"))?;
     Ok((iface.is_server(), cross.is_server()?, iface.path_id()))
 }
 
@@ -242,20 +268,38 @@ fn tick() -> Result<()> {
 
 #[rsgdll::function]
 fn counts() -> (usize, usize) {
-    (THINKS.load(Ordering::Relaxed), TICKS.load(Ordering::Relaxed))
+    (
+        THINKS.load(Ordering::Relaxed),
+        TICKS.load(Ordering::Relaxed),
+    )
 }
 
 #[rsgdll::function]
 fn hooks_and_timers(lua: &Lua) -> Result<Option<String>> {
-    hook::add::<hooks::PlayerSay, _>(lua, "showcase.say", |_, (_p, text, _t)| Ok(text.starts_with("!ping").then(|| "pong".into())))?;
+    hook::add::<hooks::PlayerSay, _>(lua, "showcase.say", |_, (_p, text, _t)| {
+        Ok(text.starts_with("!ping").then(|| "pong".into()))
+    })?;
     let r = hook::run::<hooks::PlayerSay>(lua, (None, "!ping".into(), false))?;
     hook::remove(lua, "PlayerSay", "showcase.say")?;
-    timer::simple(lua, Duration::from_millis(50), |lua| lua.set_global("SHOWCASE_SIMPLE", true))?;
-    timer::create(lua, "showcase.rep", Duration::from_millis(50), timer::Repeat::Times(2), |lua| {
-        let n: i32 = lua.global::<Option<i32>>("SHOWCASE_REP")?.unwrap_or(0);
-        lua.set_global("SHOWCASE_REP", n + 1)
+    timer::simple(lua, Duration::from_millis(50), |lua| {
+        lua.set_global("SHOWCASE_SIMPLE", true)
     })?;
-    timer::adjust(lua, "showcase.rep", Duration::from_millis(60), timer::Repeat::Times(2))?;
+    timer::create(
+        lua,
+        "showcase.rep",
+        Duration::from_millis(50),
+        timer::Repeat::Times(2),
+        |lua| {
+            let n: i32 = lua.global::<Option<i32>>("SHOWCASE_REP")?.unwrap_or(0);
+            lua.set_global("SHOWCASE_REP", n + 1)
+        },
+    )?;
+    timer::adjust(
+        lua,
+        "showcase.rep",
+        Duration::from_millis(60),
+        timer::Repeat::Times(2),
+    )?;
     Ok(r)
 }
 

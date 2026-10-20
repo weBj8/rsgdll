@@ -89,93 +89,126 @@ fn params(s: &str) -> Vec<Param> {
         .map(|p| {
             let (name, ty) = p.split_once(':').unwrap_or((p, "any"));
             let optional = ty.ends_with('?');
-            Param { name: name.to_owned(), ty: ty.trim_end_matches('?').to_owned(), optional }
+            Param {
+                name: name.to_owned(),
+                ty: ty.trim_end_matches('?').to_owned(),
+                optional,
+            }
         })
         .collect()
 }
 
 fn list(s: &str) -> Vec<String> {
-    s.split(',').filter(|t| !t.is_empty() && *t != "-").map(str::to_owned).collect()
+    s.split(',')
+        .filter(|t| !t.is_empty() && *t != "-")
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Parses the data format. Unknown or malformed lines are skipped.
 pub fn parse(data: &str) -> ApiDb {
-    data.lines().map(|l| l.split('\t').collect::<Vec<_>>()).fold(ApiDb::default(), |mut db, f| {
-        match f.as_slice() {
-            ["L", name] => {
-                db.libraries.insert((*name).to_owned(), ());
-            }
-            ["V", name, ty] => {
-                db.variables.insert((*name).to_owned(), (*ty).to_owned());
-            }
-            ["F", path, realm, dep, min, max, ps, ret] => {
-                if let (Some(realm), Ok(min)) = (Realm::parse(realm), min.parse()) {
-                    let func = Function {
-                        path: (*path).to_owned(),
-                        realm,
-                        deprecated: *dep == "1",
-                        min_args: min,
-                        max_args: max.parse().ok(),
-                        params: params(ps),
-                        returns: list(ret),
-                    };
-                    // Overloads (`Vector(x, y, z)`, `Vector(str)`): widest arity range wins.
-                    let merged = match db.functions.remove(&func.path) {
-                        Some(old) => Function {
-                            min_args: old.min_args.min(func.min_args),
-                            max_args: old.max_args.zip(func.max_args).map(|(a, b)| a.max(b)),
-                            deprecated: old.deprecated && func.deprecated,
-                            params: if old.params.len() >= func.params.len() { old.params } else { func.params },
-                            ..func
-                        },
-                        None => func,
-                    };
-                    db.functions.insert(merged.path.clone(), merged);
+    data.lines()
+        .map(|l| l.split('\t').collect::<Vec<_>>())
+        .fold(ApiDb::default(), |mut db, f| {
+            match f.as_slice() {
+                ["L", name] => {
+                    db.libraries.insert((*name).to_owned(), ());
                 }
-            }
-            ["C", name, parent] => {
-                db.classes.insert((*name).to_owned(), (*parent != "-").then(|| (*parent).to_owned()));
-            }
-            ["H", owner, name, realm, ps, ret] => {
-                if let Some(realm) = Realm::parse(realm) {
-                    let h = Hook { owner: (*owner).to_owned(), name: (*name).to_owned(), realm, params: params(ps), returns: list(ret) };
-                    db.hooks.insert(format!("{owner}:{name}"), h);
+                ["V", name, ty] => {
+                    db.variables.insert((*name).to_owned(), (*ty).to_owned());
                 }
+                ["F", path, realm, dep, min, max, ps, ret] => {
+                    if let (Some(realm), Ok(min)) = (Realm::parse(realm), min.parse()) {
+                        let func = Function {
+                            path: (*path).to_owned(),
+                            realm,
+                            deprecated: *dep == "1",
+                            min_args: min,
+                            max_args: max.parse().ok(),
+                            params: params(ps),
+                            returns: list(ret),
+                        };
+                        // Overloads (`Vector(x, y, z)`, `Vector(str)`): widest arity range wins.
+                        let merged = match db.functions.remove(&func.path) {
+                            Some(old) => Function {
+                                min_args: old.min_args.min(func.min_args),
+                                max_args: old.max_args.zip(func.max_args).map(|(a, b)| a.max(b)),
+                                deprecated: old.deprecated && func.deprecated,
+                                params: if old.params.len() >= func.params.len() {
+                                    old.params
+                                } else {
+                                    func.params
+                                },
+                                ..func
+                            },
+                            None => func,
+                        };
+                        db.functions.insert(merged.path.clone(), merged);
+                    }
+                }
+                ["C", name, parent] => {
+                    db.classes.insert(
+                        (*name).to_owned(),
+                        (*parent != "-").then(|| (*parent).to_owned()),
+                    );
+                }
+                ["H", owner, name, realm, ps, ret] => {
+                    if let Some(realm) = Realm::parse(realm) {
+                        let h = Hook {
+                            owner: (*owner).to_owned(),
+                            name: (*name).to_owned(),
+                            realm,
+                            params: params(ps),
+                            returns: list(ret),
+                        };
+                        db.hooks.insert(format!("{owner}:{name}"), h);
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        }
-        db
-    })
+            db
+        })
 }
 
 impl ApiDb {
     /// Global name known to GMod (library, global function or variable).
     pub fn is_global(&self, name: &str) -> bool {
-        self.libraries.contains_key(name) || self.variables.contains_key(name) || self.functions.contains_key(name)
+        self.libraries.contains_key(name)
+            || self.variables.contains_key(name)
+            || self.functions.contains_key(name)
     }
 
     /// Members of library `lib` (`net` -> `WriteString`, ...).
     pub fn members<'a>(&'a self, lib: &'a str) -> impl Iterator<Item = &'a str> + 'a {
         let prefix = format!("{lib}.");
-        self.functions.keys().filter_map(move |k| k.strip_prefix(prefix.as_str()))
+        self.functions
+            .keys()
+            .filter_map(move |k| k.strip_prefix(prefix.as_str()))
     }
 
     /// Method lookup walking the class chain (`Player:GetPos` -> `Entity:GetPos`).
     pub fn method(&self, class: &str, name: &str) -> Option<&Function> {
-        std::iter::successors(Some(class.to_owned()), |c| self.classes.get(c).cloned().flatten())
-            .take(16)
-            .find_map(|c| self.functions.get(&format!("{c}:{name}")))
+        std::iter::successors(Some(class.to_owned()), |c| {
+            self.classes.get(c).cloned().flatten()
+        })
+        .take(16)
+        .find_map(|c| self.functions.get(&format!("{c}:{name}")))
     }
 
     /// Method names of a class, including inherited ones.
     pub fn methods(&self, class: &str) -> Vec<String> {
-        std::iter::successors(Some(class.to_owned()), |c| self.classes.get(c).cloned().flatten())
-            .take(16)
-            .flat_map(|c| {
-                let prefix = format!("{c}:");
-                self.functions.keys().filter_map(move |k| k.strip_prefix(prefix.as_str()).map(str::to_owned)).collect::<Vec<_>>()
-            })
-            .collect()
+        std::iter::successors(Some(class.to_owned()), |c| {
+            self.classes.get(c).cloned().flatten()
+        })
+        .take(16)
+        .flat_map(|c| {
+            let prefix = format!("{c}:");
+            self.functions
+                .keys()
+                .filter_map(move |k| k.strip_prefix(prefix.as_str()).map(str::to_owned))
+                .collect::<Vec<_>>()
+        })
+        .collect()
     }
 
     pub fn hook(&self, owner: &str, name: &str) -> Option<&Hook> {
@@ -195,16 +228,22 @@ mod tests {
 
     #[test]
     fn parses_lines() {
-        let db = parse("L\tnet\nF\tnet.WriteString\tshared\t0\t1\t1\tstr:string\t-\nC\tPlayer\tEntity\nF\tEntity:GetPos\tshared\t0\t0\t0\t-\tVector\nH\tGM\tPlayerSay\tserver\tsender:Player,text:string,teamChat:boolean\tstring\n");
+        let db = parse(
+            "L\tnet\nF\tnet.WriteString\tshared\t0\t1\t1\tstr:string\t-\nC\tPlayer\tEntity\nF\tEntity:GetPos\tshared\t0\t0\t0\t-\tVector\nH\tGM\tPlayerSay\tserver\tsender:Player,text:string,teamChat:boolean\tstring\n",
+        );
         assert!(db.is_global("net"));
         assert_eq!(db.members("net").collect::<Vec<_>>(), ["WriteString"]);
-        assert_eq!(db.method("Player", "GetPos").map(|f| f.returns.clone()), Some(vec!["Vector".to_owned()]));
+        assert_eq!(
+            db.method("Player", "GetPos").map(|f| f.returns.clone()),
+            Some(vec!["Vector".to_owned()])
+        );
         assert_eq!(db.hook("GM", "PlayerSay").map(|h| h.params.len()), Some(3));
     }
 
     #[test]
     fn overloads_merge() {
-        let db = parse("F\tVector\tshared\t0\t0\t3\t-\tVector\nF\tVector\tshared\t0\t1\t1\t-\tVector\n");
+        let db =
+            parse("F\tVector\tshared\t0\t0\t3\t-\tVector\nF\tVector\tshared\t0\t1\t1\t-\tVector\n");
         let f = &db.functions["Vector"];
         assert_eq!((f.min_args, f.max_args), (0, Some(3)));
     }
@@ -212,7 +251,11 @@ mod tests {
     #[test]
     fn vendored_db_loads() {
         let db = db();
-        assert!(db.is_global("net") && db.is_global("hook") && db.functions.contains_key("net.WriteString"));
+        assert!(
+            db.is_global("net")
+                && db.is_global("hook")
+                && db.functions.contains_key("net.WriteString")
+        );
         assert!(db.hook("GM", "PlayerSay").is_some());
         assert!(db.method("Player", "GetPos").is_some());
     }

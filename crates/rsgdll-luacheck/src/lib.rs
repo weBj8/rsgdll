@@ -62,7 +62,9 @@ fn distance(a: &str, b: &str) -> usize {
         .fold((0..=b.len()).collect::<Vec<_>>(), |prev, ca| {
             let mut row = vec![prev[0] + 1];
             b.iter().enumerate().for_each(|(j, cb)| {
-                let v = (prev[j] + usize::from(ca != *cb)).min(prev[j + 1] + 1).min(row[j] + 1);
+                let v = (prev[j] + usize::from(ca != *cb))
+                    .min(prev[j + 1] + 1)
+                    .min(row[j] + 1);
                 row.push(v);
             });
             row
@@ -84,10 +86,45 @@ pub fn suggest<'a>(name: &str, candidates: impl Iterator<Item = &'a str>) -> Opt
 
 /// Lua 5.1 / LuaJIT base names the snippets may not list.
 const BUILTINS: &[&str] = &[
-    "_G", "_VERSION", "assert", "collectgarbage", "error", "getfenv", "getmetatable", "ipairs", "load",
-    "loadstring", "module", "next", "pairs", "pcall", "print", "rawequal", "rawget", "rawset", "require",
-    "select", "setfenv", "setmetatable", "tonumber", "tostring", "type", "unpack", "xpcall", "self",
-    "coroutine", "debug", "io", "math", "os", "package", "string", "table", "bit", "jit", "ffi",
+    "_G",
+    "_VERSION",
+    "assert",
+    "collectgarbage",
+    "error",
+    "getfenv",
+    "getmetatable",
+    "ipairs",
+    "load",
+    "loadstring",
+    "module",
+    "next",
+    "pairs",
+    "pcall",
+    "print",
+    "rawequal",
+    "rawget",
+    "rawset",
+    "require",
+    "select",
+    "setfenv",
+    "setmetatable",
+    "tonumber",
+    "tostring",
+    "type",
+    "unpack",
+    "xpcall",
+    "self",
+    "coroutine",
+    "debug",
+    "io",
+    "math",
+    "os",
+    "package",
+    "string",
+    "table",
+    "bit",
+    "jit",
+    "ffi",
 ];
 
 struct Checker<'a> {
@@ -100,7 +137,12 @@ struct Checker<'a> {
 
 impl<'a> Checker<'a> {
     fn push(&mut self, severity: Severity, kind: Kind, msg: String, span: Span) {
-        self.out.push(Diagnostic { severity, kind, msg, span });
+        self.out.push(Diagnostic {
+            severity,
+            kind,
+            msg,
+            span,
+        });
     }
 
     fn is_local(&self, n: &str) -> bool {
@@ -126,9 +168,20 @@ impl<'a> Checker<'a> {
     /// Lua class of an expression when knowable (captures, known-return calls).
     fn class_of(&self, e: &Expr) -> Option<String> {
         match e {
-            Expr::Capture(c, _) => self.ctx.captures.iter().find(|(n, _)| n == c).and_then(|(_, t)| t.clone()),
-            Expr::Call(f, _, _) => f.path().and_then(|p| self.db.functions.get(&p)).and_then(|f| f.returns.first().cloned()),
-            Expr::Method(r, m, _, _) => self.class_of(r).and_then(|c| self.db.method(&c, m)).and_then(|f| f.returns.first().cloned()),
+            Expr::Capture(c, _) => self
+                .ctx
+                .captures
+                .iter()
+                .find(|(n, _)| n == c)
+                .and_then(|(_, t)| t.clone()),
+            Expr::Call(f, _, _) => f
+                .path()
+                .and_then(|p| self.db.functions.get(&p))
+                .and_then(|f| f.returns.first().cloned()),
+            Expr::Method(r, m, _, _) => self
+                .class_of(r)
+                .and_then(|c| self.db.method(&c, m))
+                .and_then(|f| f.returns.first().cloned()),
             Expr::Paren(e) => self.class_of(e),
             _ => None,
         }
@@ -146,16 +199,31 @@ impl<'a> Checker<'a> {
                 Some(m) => format!("{}..={m}", f.min_args),
                 None => format!("at least {}", f.min_args),
             };
-            self.push(Severity::Warning, Kind::Arity, format!("'{}' expects {want} argument(s), got {n}", f.path), span);
+            self.push(
+                Severity::Warning,
+                Kind::Arity,
+                format!("'{}' expects {want} argument(s), got {n}", f.path),
+                span,
+            );
         }
     }
 
     fn func_checks(&mut self, f: &rsgdll_apidb::Function, span: Span) {
         if f.deprecated {
-            self.push(Severity::Warning, Kind::Deprecated, format!("'{}' is deprecated", f.path), span);
+            self.push(
+                Severity::Warning,
+                Kind::Deprecated,
+                format!("'{}' is deprecated", f.path),
+                span,
+            );
         }
         if matches!(f.realm, Realm::Server | Realm::Client | Realm::Menu) {
-            self.push(Severity::Error, Kind::Realm(f.realm), format!("'{}' is {}-only", f.path, f.realm.as_str()), span);
+            self.push(
+                Severity::Error,
+                Kind::Realm(f.realm),
+                format!("'{}' is {}-only", f.path, f.realm.as_str()),
+                span,
+            );
         }
     }
 
@@ -163,20 +231,43 @@ impl<'a> Checker<'a> {
         match e {
             Expr::Name(n, sp) => {
                 if !self.is_local(n) && !self.known_global(n) {
-                    let hint = suggest(n, self.db.libraries.keys().chain(self.db.functions.keys()).map(String::as_str).filter(|k| !k.contains(['.', ':'])))
-                        .map_or(String::new(), |s| format!(" (did you mean '{s}'?)"));
-                    self.push(Severity::Warning, Kind::UnknownGlobal, format!("unknown global '{n}'{hint}"), *sp);
+                    let hint = suggest(
+                        n,
+                        self.db
+                            .libraries
+                            .keys()
+                            .chain(self.db.functions.keys())
+                            .map(String::as_str)
+                            .filter(|k| !k.contains(['.', ':'])),
+                    )
+                    .map_or(String::new(), |s| format!(" (did you mean '{s}'?)"));
+                    self.push(
+                        Severity::Warning,
+                        Kind::UnknownGlobal,
+                        format!("unknown global '{n}'{hint}"),
+                        *sp,
+                    );
                 }
             }
             Expr::Field(base, field, sp) => {
                 self.expr(base);
                 if let Expr::Name(lib, _) = &**base {
-                    if !self.is_local(lib) && self.db.libraries.contains_key(lib) && !self.db.functions.contains_key(&format!("{lib}.{field}")) && !self.db.variables.contains_key(&format!("{lib}.{field}")) {
+                    if !self.is_local(lib)
+                        && self.db.libraries.contains_key(lib)
+                        && !self.db.functions.contains_key(&format!("{lib}.{field}"))
+                        && !self.db.variables.contains_key(&format!("{lib}.{field}"))
+                    {
                         let members: Vec<&str> = self.db.members(lib).collect();
                         // Libraries the snippets list without members (e.g. pure Lua std) are not checked.
                         if !members.is_empty() {
-                            let hint = suggest(field, members.into_iter()).map_or(String::new(), |s| format!(" (did you mean '{lib}.{s}'?)"));
-                            self.push(Severity::Error, Kind::UnknownMember, format!("unknown member '{lib}.{field}'{hint}"), *sp);
+                            let hint = suggest(field, members.into_iter())
+                                .map_or(String::new(), |s| format!(" (did you mean '{lib}.{s}'?)"));
+                            self.push(
+                                Severity::Error,
+                                Kind::UnknownMember,
+                                format!("unknown member '{lib}.{field}'{hint}"),
+                                *sp,
+                            );
                         }
                     }
                 }
@@ -190,7 +281,12 @@ impl<'a> Checker<'a> {
                 args.iter().for_each(|a| self.expr(a));
                 let local_root = matches!(&**f, Expr::Name(n, _) if self.is_local(n))
                     || matches!(&**f, Expr::Field(b, _, _) if matches!(&**b, Expr::Name(n, _) if self.is_local(n)));
-                if let Some(func) = f.path().filter(|_| !local_root).and_then(|p| self.db.functions.get(&p)).cloned() {
+                if let Some(func) = f
+                    .path()
+                    .filter(|_| !local_root)
+                    .and_then(|p| self.db.functions.get(&p))
+                    .cloned()
+                {
                     self.arity(&func, args, *sp, 0);
                     self.func_checks(&func, *sp);
                 }
@@ -206,8 +302,16 @@ impl<'a> Checker<'a> {
                         }
                         None => {
                             let methods = self.db.methods(&class);
-                            let hint = suggest(m, methods.iter().map(String::as_str)).map_or(String::new(), |s| format!(" (did you mean '{class}:{s}'?)"));
-                            self.push(Severity::Error, Kind::UnknownMember, format!("unknown method '{class}:{m}'{hint}"), *sp);
+                            let hint = suggest(m, methods.iter().map(String::as_str))
+                                .map_or(String::new(), |s| {
+                                    format!(" (did you mean '{class}:{s}'?)")
+                                });
+                            self.push(
+                                Severity::Error,
+                                Kind::UnknownMember,
+                                format!("unknown method '{class}:{m}'{hint}"),
+                                *sp,
+                            );
                         }
                     }
                 }
@@ -224,7 +328,13 @@ impl<'a> Checker<'a> {
                 self.expr(b);
             }
             Expr::Un(_, e) | Expr::Paren(e) => self.expr(e),
-            Expr::Nil | Expr::True | Expr::False | Expr::Vararg | Expr::Number(_) | Expr::Str(_) | Expr::Capture(..) => {}
+            Expr::Nil
+            | Expr::True
+            | Expr::False
+            | Expr::Vararg
+            | Expr::Number(_)
+            | Expr::Str(_)
+            | Expr::Capture(..) => {}
         }
     }
 
@@ -284,7 +394,10 @@ impl<'a> Checker<'a> {
                 }
             }
             Stat::NumFor(v, a, b, step, body) => {
-                [Some(a), Some(b), step.as_ref()].into_iter().flatten().for_each(|e| self.expr(e));
+                [Some(a), Some(b), step.as_ref()]
+                    .into_iter()
+                    .flatten()
+                    .for_each(|e| self.expr(e));
                 self.scoped(vec![v.clone()], |c| c.block(body));
             }
             Stat::GenFor(names, exprs, body) => {
@@ -293,7 +406,8 @@ impl<'a> Checker<'a> {
             }
             Stat::Return(vals, sp) => {
                 vals.iter().for_each(|v| self.expr(v));
-                self.returns.push((vals.len(), vals.last().is_some_and(Expr::is_multi), *sp));
+                self.returns
+                    .push((vals.len(), vals.last().is_some_and(Expr::is_multi), *sp));
             }
             Stat::Break | Stat::Continue | Stat::Goto(_) | Stat::Label(_) => {}
         }
@@ -306,16 +420,35 @@ pub fn check(src: &str, db: &ApiDb, ctx: &Ctx) -> Vec<Diagnostic> {
         .map_err(|e| (e.msg, e.span))
         .and_then(|t| parser::parse(&t).map_err(|e| (e.msg, e.span)));
     match parsed {
-        Err((msg, span)) => vec![Diagnostic { severity: Severity::Error, kind: Kind::Syntax, msg, span }],
+        Err((msg, span)) => vec![Diagnostic {
+            severity: Severity::Error,
+            kind: Kind::Syntax,
+            msg,
+            span,
+        }],
         Ok(block) => {
             let captures = ctx.captures.iter().map(|(n, _)| n.clone()).collect();
-            let mut c = Checker { db, ctx, scopes: vec![captures], out: Vec::new(), returns: Vec::new() };
+            let mut c = Checker {
+                db,
+                ctx,
+                scopes: vec![captures],
+                out: Vec::new(),
+                returns: Vec::new(),
+            };
             c.block(&block);
             if let Some(want) = ctx.expected_returns.filter(|w| *w > 1) {
                 let fixed: Vec<_> = c.returns.iter().filter(|(_, multi, _)| !multi).collect();
-                if !c.returns.is_empty() && fixed.len() == c.returns.len() && fixed.iter().all(|(n, _, _)| *n != want) {
+                if !c.returns.is_empty()
+                    && fixed.len() == c.returns.len()
+                    && fixed.iter().all(|(n, _, _)| *n != want)
+                {
                     let span = fixed.first().map_or_else(Span::default, |r| r.2);
-                    c.push(Severity::Warning, Kind::ReturnCount, format!("chunk never returns {want} values"), span);
+                    c.push(
+                        Severity::Warning,
+                        Kind::ReturnCount,
+                        format!("chunk never returns {want} values"),
+                        span,
+                    );
                 }
             }
             c.out
@@ -334,7 +467,12 @@ pub fn captures(src: &str) -> Result<Vec<(String, Span)>, Diagnostic> {
                 })
                 .collect()
         })
-        .map_err(|e| Diagnostic { severity: Severity::Error, kind: Kind::Syntax, msg: e.msg, span: e.span })
+        .map_err(|e| Diagnostic {
+            severity: Severity::Error,
+            kind: Kind::Syntax,
+            msg: e.msg,
+            span: e.span,
+        })
 }
 
 /// Rewrites `$name` captures to `__rsgdll_<name>` locals bound from `...` (spec §8.3).
@@ -347,17 +485,26 @@ pub fn rewrite(src: &str) -> Result<(String, Vec<String>), Diagnostic> {
         }
         v
     });
-    let (body, last) = caps.iter().fold((String::new(), 0), |(mut s, at), (n, sp)| {
-        s.push_str(&src[at..sp.start]);
-        s.push_str("__rsgdll_");
-        s.push_str(n);
-        (s, sp.end)
-    });
+    let (body, last) = caps
+        .iter()
+        .fold((String::new(), 0), |(mut s, at), (n, sp)| {
+            s.push_str(&src[at..sp.start]);
+            s.push_str("__rsgdll_");
+            s.push_str(n);
+            (s, sp.end)
+        });
     let body = body + &src[last..];
     let header = match names.is_empty() {
         true => String::new(),
         // Same line as the body so Lua line numbers match the source.
-        false => format!("local {} = ... ", names.iter().map(|n| format!("__rsgdll_{n}")).collect::<Vec<_>>().join(", ")),
+        false => format!(
+            "local {} = ... ",
+            names
+                .iter()
+                .map(|n| format!("__rsgdll_{n}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     };
     Ok((header + &body, names))
 }
@@ -373,7 +520,9 @@ pub fn is_expression(src: &str) -> bool {
 pub fn line_col(src: &str, offset: usize) -> (usize, usize) {
     let before = &src[..offset.min(src.len())];
     let line = before.matches('\n').count();
-    let col = before.rfind('\n').map_or(before.len(), |p| before.len() - p - 1);
+    let col = before
+        .rfind('\n')
+        .map_or(before.len(), |p| before.len() - p - 1);
     (line, col)
 }
 
@@ -382,27 +531,51 @@ mod tests {
     use super::*;
 
     fn diags(src: &str, ctx: &Ctx) -> Vec<(Kind, String)> {
-        check(src, rsgdll_apidb::db(), ctx).into_iter().map(|d| (d.kind, d.msg)).collect()
+        check(src, rsgdll_apidb::db(), ctx)
+            .into_iter()
+            .map(|d| (d.kind, d.msg))
+            .collect()
     }
 
     #[test]
     fn spec_example_is_clean() {
-        let ctx = Ctx { captures: vec![("ply".into(), Some("Player".into())), ("limit".into(), None)], ..Ctx::default() };
+        let ctx = Ctx {
+            captures: vec![
+                ("ply".into(), Some("Player".into())),
+                ("limit".into(), None),
+            ],
+            ..Ctx::default()
+        };
         let src = "local n = 0\nfor _, e in ipairs(ents.FindByClass(\"prop_physics\")) do\n if e:GetOwner() == $ply then n = n + 1 end\nend\nreturn math.min(n, $limit)";
-        let d: Vec<_> = diags(src, &ctx).into_iter().filter(|(k, _)| !matches!(k, Kind::Realm(_))).collect();
+        let d: Vec<_> = diags(src, &ctx)
+            .into_iter()
+            .filter(|(k, _)| !matches!(k, Kind::Realm(_)))
+            .collect();
         assert!(d.is_empty(), "{d:?}");
     }
 
     #[test]
     fn unknown_member_with_suggestion() {
         let d = diags("net.WriteStrng('x')", &Ctx::default());
-        assert!(d.iter().any(|(k, m)| *k == Kind::UnknownMember && m.contains("did you mean 'net.WriteString'")), "{d:?}");
+        assert!(
+            d.iter()
+                .any(|(k, m)| *k == Kind::UnknownMember
+                    && m.contains("did you mean 'net.WriteString'")),
+            "{d:?}"
+        );
     }
 
     #[test]
     fn unknown_global_warns_unless_allowed() {
-        assert!(diags("return MyAddonThing", &Ctx::default()).iter().any(|(k, _)| *k == Kind::UnknownGlobal));
-        let ctx = Ctx { globals: vec!["MyAddonThing".into()], ..Ctx::default() };
+        assert!(
+            diags("return MyAddonThing", &Ctx::default())
+                .iter()
+                .any(|(k, _)| *k == Kind::UnknownGlobal)
+        );
+        let ctx = Ctx {
+            globals: vec!["MyAddonThing".into()],
+            ..Ctx::default()
+        };
         assert!(diags("return MyAddonThing", &ctx).is_empty());
         assert!(diags("local x = 1 return x", &Ctx::default()).is_empty());
     }
@@ -412,24 +585,54 @@ mod tests {
         let d = diags("GetHostName(1, 2)", &Ctx::default());
         assert!(d.iter().any(|(k, _)| *k == Kind::Arity), "{d:?}");
         let d = diags("net.Broadcast()", &Ctx::default());
-        assert!(d.iter().any(|(k, _)| *k == Kind::Realm(Realm::Server)), "{d:?}");
+        assert!(
+            d.iter().any(|(k, _)| *k == Kind::Realm(Realm::Server)),
+            "{d:?}"
+        );
         assert!(diags("print(1, 2, 3, 4, 5)", &Ctx::default()).is_empty());
     }
 
     #[test]
     fn typed_method_calls() {
-        let ctx = Ctx { captures: vec![("p".into(), Some("Player".into()))], ..Ctx::default() };
+        let ctx = Ctx {
+            captures: vec![("p".into(), Some("Player".into()))],
+            ..Ctx::default()
+        };
         let d = diags("return $p:Nikc()", &ctx);
-        assert!(d.iter().any(|(k, m)| *k == Kind::UnknownMember && m.contains("Nick")), "{d:?}");
+        assert!(
+            d.iter()
+                .any(|(k, m)| *k == Kind::UnknownMember && m.contains("Nick")),
+            "{d:?}"
+        );
         // inherited from Entity
-        assert!(diags("return $p:GetPos()", &ctx).iter().all(|(k, _)| !matches!(k, Kind::UnknownMember)));
+        assert!(
+            diags("return $p:GetPos()", &ctx)
+                .iter()
+                .all(|(k, _)| !matches!(k, Kind::UnknownMember))
+        );
     }
 
     #[test]
     fn return_count() {
-        let ctx = Ctx { expected_returns: Some(2), ..Ctx::default() };
-        assert!(diags("return 1", &ctx).iter().any(|(k, _)| *k == Kind::ReturnCount));
-        assert!(diags("if x then return 1, 2 end return 1", &Ctx { globals: vec!["x".into()], ..ctx.clone() }).is_empty());
+        let ctx = Ctx {
+            expected_returns: Some(2),
+            ..Ctx::default()
+        };
+        assert!(
+            diags("return 1", &ctx)
+                .iter()
+                .any(|(k, _)| *k == Kind::ReturnCount)
+        );
+        assert!(
+            diags(
+                "if x then return 1, 2 end return 1",
+                &Ctx {
+                    globals: vec!["x".into()],
+                    ..ctx.clone()
+                }
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -452,6 +655,9 @@ mod tests {
     fn rewrite_captures() {
         let (src, names) = rewrite("return $a + $b + $a").unwrap();
         assert_eq!(names, ["a", "b"]);
-        assert_eq!(src, "local __rsgdll_a, __rsgdll_b = ... return __rsgdll_a + __rsgdll_b + __rsgdll_a");
+        assert_eq!(
+            src,
+            "local __rsgdll_a, __rsgdll_b = ... return __rsgdll_a + __rsgdll_b + __rsgdll_a"
+        );
     }
 }

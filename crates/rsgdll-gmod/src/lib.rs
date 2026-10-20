@@ -12,13 +12,17 @@ pub mod hooks {
     pub use crate::hooks_gen::*;
 }
 
+pub use misc::{concommand, cvars, error_no_halt, msg, net, print};
 #[doc(hidden)]
 pub use rsgdll_core::Realm as __Realm;
-pub use misc::{concommand, cvars, error_no_halt, msg, net, print};
 
 use linkme::distributed_slice;
 use rsgdll_core::Lua;
 use rsgdll_core::module::{Ordered, TEARDOWN};
 
 #[distributed_slice(TEARDOWN)]
-static CONCOMMANDS: Ordered<fn(&Lua)> = Ordered { order: 1, name: "rsgdll.concommands", f: concommand::teardown };
+static CONCOMMANDS: Ordered<fn(&Lua)> = Ordered {
+    order: 1,
+    name: "rsgdll.concommands",
+    f: concommand::teardown,
+};

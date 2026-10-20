@@ -3,7 +3,9 @@
 use core::ffi::{c_char, c_int, c_void};
 
 use crate::lua::lua_State;
-use crate::vtables::{ILuaBaseVTable, ILuaInterfaceVTable, ILuaSharedVTable, ILuaThreadedCallVTable};
+use crate::vtables::{
+    ILuaBaseVTable, ILuaInterfaceVTable, ILuaSharedVTable, ILuaThreadedCallVTable,
+};
 
 /// Calling convention of C++ virtual methods: `thiscall` on Windows x86, C elsewhere.
 #[cfg(all(windows, target_arch = "x86"))]

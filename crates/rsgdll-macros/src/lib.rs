@@ -26,7 +26,9 @@ pub fn derive_lua_value(input: TokenStream) -> TokenStream {
 /// `UserData` for a Rust type; methods from `#[rsgdll::methods]`.
 #[proc_macro_derive(LuaUserData, attributes(lua))]
 pub fn derive_lua_userdata(input: TokenStream) -> TokenStream {
-    emit(derive::lua_userdata(parse_macro_input!(input as DeriveInput)))
+    emit(derive::lua_userdata(parse_macro_input!(
+        input as DeriveInput
+    )))
 }
 
 /// `module!(name = "mymod")`: generates `gmod13_open` / `gmod13_close` (spec §8.1).
@@ -38,27 +40,46 @@ pub fn module(input: TokenStream) -> TokenStream {
 /// Exports a Rust fn to Lua (spec §8.2).
 #[proc_macro_attribute]
 pub fn function(attr: TokenStream, item: TokenStream) -> TokenStream {
-    emit(function::function(attr.into(), parse_macro_input!(item as ItemFn)))
+    emit(function::function(
+        attr.into(),
+        parse_macro_input!(item as ItemFn),
+    ))
 }
 
 #[proc_macro_attribute]
 pub fn preopen(attr: TokenStream, item: TokenStream) -> TokenStream {
-    emit(function::lifecycle("PREOPEN", attr.into(), parse_macro_input!(item as ItemFn)))
+    emit(function::lifecycle(
+        "PREOPEN",
+        attr.into(),
+        parse_macro_input!(item as ItemFn),
+    ))
 }
 
 #[proc_macro_attribute]
 pub fn postopen(attr: TokenStream, item: TokenStream) -> TokenStream {
-    emit(function::lifecycle("POSTOPEN", attr.into(), parse_macro_input!(item as ItemFn)))
+    emit(function::lifecycle(
+        "POSTOPEN",
+        attr.into(),
+        parse_macro_input!(item as ItemFn),
+    ))
 }
 
 #[proc_macro_attribute]
 pub fn preclose(attr: TokenStream, item: TokenStream) -> TokenStream {
-    emit(function::lifecycle("PRECLOSE", attr.into(), parse_macro_input!(item as ItemFn)))
+    emit(function::lifecycle(
+        "PRECLOSE",
+        attr.into(),
+        parse_macro_input!(item as ItemFn),
+    ))
 }
 
 #[proc_macro_attribute]
 pub fn postclose(attr: TokenStream, item: TokenStream) -> TokenStream {
-    emit(function::lifecycle("POSTCLOSE", attr.into(), parse_macro_input!(item as ItemFn)))
+    emit(function::lifecycle(
+        "POSTCLOSE",
+        attr.into(),
+        parse_macro_input!(item as ItemFn),
+    ))
 }
 
 /// Methods/metamethods for a `#[derive(LuaUserData)]` type.
@@ -70,23 +91,34 @@ pub fn methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Declares an engine interface vtable layout (spec §5.2).
 #[proc_macro_attribute]
 pub fn interface(attr: TokenStream, item: TokenStream) -> TokenStream {
-    emit(interface::interface(attr.into(), parse_macro_input!(item as ItemTrait)))
+    emit(interface::interface(
+        attr.into(),
+        parse_macro_input!(item as ItemTrait),
+    ))
 }
 
 /// Inline, compile-time checked GLua (spec §8.3).
 #[proc_macro]
 pub fn lua(input: TokenStream) -> TokenStream {
-    emit(lua_macro::lua(parse_macro_input!(input as lua_macro::LuaInput)))
+    emit(lua_macro::lua(parse_macro_input!(
+        input as lua_macro::LuaInput
+    )))
 }
 
 /// Registers a `hook.Add` callback at open (spec §10.4).
 #[proc_macro_attribute]
 pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
-    emit(hookattr::hook(attr.into(), parse_macro_input!(item as ItemFn)))
+    emit(hookattr::hook(
+        attr.into(),
+        parse_macro_input!(item as ItemFn),
+    ))
 }
 
 /// Registers a named timer at open (spec §10.3).
 #[proc_macro_attribute]
 pub fn timer(attr: TokenStream, item: TokenStream) -> TokenStream {
-    emit(hookattr::timer(attr.into(), parse_macro_input!(item as ItemFn)))
+    emit(hookattr::timer(
+        attr.into(),
+        parse_macro_input!(item as ItemFn),
+    ))
 }

@@ -46,7 +46,9 @@ pub fn exec(l: *mut lua_State, src: &str) -> Result<String, String> {
         let p = (a.lua_tolstring)(l, -1, &mut len);
         let s = match p.is_null() {
             true => "nil".to_owned(),
-            false => String::from_utf8_lossy(std::slice::from_raw_parts(p.cast(), len)).into_owned(),
+            false => {
+                String::from_utf8_lossy(std::slice::from_raw_parts(p.cast(), len)).into_owned()
+            }
         };
         (a.lua_settop)(l, top);
         if st == LUA_OK { Ok(s) } else { Err(s) }

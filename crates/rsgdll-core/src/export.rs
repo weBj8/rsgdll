@@ -4,8 +4,8 @@ use core::ffi::c_int;
 
 use rsgdll_sys::lua::lua_State;
 
-use crate::conv::func::{bad_argument, returns};
 use crate::conv::IntoLuaMulti;
+use crate::conv::func::{bad_argument, returns};
 use crate::error::ConvError;
 use crate::error::Error;
 use crate::lua::Lua;
@@ -28,7 +28,12 @@ pub type ArgError = (c_int, ConvError);
 // Safe FFI boundary by design (spec §1): only macro-generated `extern "C-unwind"` fns call
 // this, with the `lua_State*` Lua passed them; user crates then need no `unsafe`.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn entry(l: *mut lua_State, name: &'static str, in_module: bool, body: &dyn Fn(&Lua, c_int) -> Result<Outcome, ArgError>) -> c_int {
+pub fn entry(
+    l: *mut lua_State,
+    name: &'static str,
+    in_module: bool,
+    body: &dyn Fn(&Lua, c_int) -> Result<Outcome, ArgError>,
+) -> c_int {
     // SAFETY: only called from generated `extern "C-unwind"` fns that Lua invokes with `l`.
     unsafe {
         trampoline::call(l, &|lua| {
@@ -42,7 +47,13 @@ pub fn entry(l: *mut lua_State, name: &'static str, in_module: bool, body: &dyn 
 }
 
 /// `Ok` value of an export.
-pub fn value<R: IntoLuaMulti>(lua: &Lua, entry: c_int, name: &str, in_module: bool, r: R) -> Outcome {
+pub fn value<R: IntoLuaMulti>(
+    lua: &Lua,
+    entry: c_int,
+    name: &str,
+    in_module: bool,
+    r: R,
+) -> Outcome {
     returns(lua, entry, &path(lua, name, in_module), r)
 }
 
@@ -69,7 +80,11 @@ impl<E: std::fmt::Display> ViaDisplay for &ErrWrap<E> {
 
 /// Formats an `Err` of an export (`[module] path: message`).
 pub fn error(lua: &Lua, name: &str, in_module: bool, text: String) -> Outcome {
-    Outcome::Err(trampoline::format_error(lua.module_name(), &path(lua, name, in_module), &text))
+    Outcome::Err(trampoline::format_error(
+        lua.module_name(),
+        &path(lua, name, in_module),
+        &text,
+    ))
 }
 
 /// Converts any user error into `rsgdll::Error` (keeps rsgdll errors' formatted text).
@@ -78,7 +93,12 @@ pub fn to_error(text: String) -> Error {
 }
 
 /// Calls `cb(nil, values...)` or `cb(err_string)`; a raising callback is logged (spec §10.2).
-fn deliver<R: IntoLuaMulti>(lua: &Lua, cb: &crate::conv::LuaFunction, path: &str, r: crate::Result<R>) {
+fn deliver<R: IntoLuaMulti>(
+    lua: &Lua,
+    cb: &crate::conv::LuaFunction,
+    path: &str,
+    r: crate::Result<R>,
+) {
     use crate::conv::Stage;
     use crate::protected::Op;
     let g = lua.guard();
@@ -88,7 +108,13 @@ fn deliver<R: IntoLuaMulti>(lua: &Lua, cb: &crate::conv::LuaFunction, path: &str
             s.nil();
             v.into_lua_multi(&mut s).map(|n| n + 1)
         }
-        Err(e) => s.push(trampoline::format_error(lua.module_name(), path, &e.lua_message())).map(|_| 1),
+        Err(e) => s
+            .push(trampoline::format_error(
+                lua.module_name(),
+                path,
+                &e.lua_message(),
+            ))
+            .map(|_| 1),
     });
     let res = staged.map_err(Error::from).and_then(|n| {
         s.op(Op::Call(n, 0), -n - 1);
@@ -96,13 +122,25 @@ fn deliver<R: IntoLuaMulti>(lua: &Lua, cb: &crate::conv::LuaFunction, path: &str
     });
     drop(g);
     if let Err(e) = res {
-        crate::rt::executor::log_error(lua, &format!("[{}] {path} callback: {}", lua.module_name(), e.lua_message()));
+        crate::rt::executor::log_error(
+            lua,
+            &format!(
+                "[{}] {path} callback: {}",
+                lua.module_name(),
+                e.lua_message()
+            ),
+        );
     }
 }
 
 /// Runs an async export's future on the state's executor and delivers the result.
-pub fn spawn_async<R, F>(lua: &Lua, name: &'static str, in_module: bool, cb: crate::conv::LuaFunction, fut: F)
-where
+pub fn spawn_async<R, F>(
+    lua: &Lua,
+    name: &'static str,
+    in_module: bool,
+    cb: crate::conv::LuaFunction,
+    fut: F,
+) where
     R: IntoLuaMulti + 'static,
     F: std::future::Future<Output = crate::Result<R>> + 'static,
 {
@@ -114,4 +152,3 @@ where
         }
     });
 }
-

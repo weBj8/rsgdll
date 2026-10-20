@@ -23,7 +23,9 @@ pub fn pascal(s: &str) -> String {
         .filter(|w| !w.is_empty())
         .map(|w| {
             let mut c = w.chars();
-            c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default()
+            c.next()
+                .map(|f| f.to_uppercase().chain(c).collect::<String>())
+                .unwrap_or_default()
         })
         .collect()
 }
@@ -48,7 +50,9 @@ pub fn warning(span: Span, msg: &str) -> TokenStream {
 /// Whether `ty` is `&Lua` / `&rsgdll::Lua`.
 pub fn is_lua_ref(ty: &syn::Type) -> bool {
     match ty {
-        syn::Type::Reference(r) => matches!(&*r.elem, syn::Type::Path(p) if p.path.segments.last().is_some_and(|s| s.ident == "Lua")),
+        syn::Type::Reference(r) => {
+            matches!(&*r.elem, syn::Type::Path(p) if p.path.segments.last().is_some_and(|s| s.ident == "Lua"))
+        }
         _ => false,
     }
 }
@@ -68,7 +72,10 @@ pub fn realm_tokens(span: Span, r: &str) -> syn::Result<TokenStream> {
         "server" => Ok(quote!(#rt::Realm::Server)),
         "client" => Ok(quote!(#rt::Realm::Client)),
         "menu" => Ok(quote!(#rt::Realm::Menu)),
-        _ => Err(err(span, "realm must be \"server\", \"client\" or \"menu\"")),
+        _ => Err(err(
+            span,
+            "realm must be \"server\", \"client\" or \"menu\"",
+        )),
     }
 }
 
@@ -76,9 +83,15 @@ pub fn realm_tokens(span: Span, r: &str) -> syn::Result<TokenStream> {
 pub fn realm_guard(span: Span, realm: &str, what: &str) -> TokenStream {
     let msg = format!("{what} is {realm}-only and this crate does not build the {realm} realm");
     match realm {
-        "server" => quote::quote_spanned! {span=> #[cfg(all(feature = "client", not(feature = "server")))] ::core::compile_error!(#msg); },
-        "client" => quote::quote_spanned! {span=> #[cfg(all(feature = "server", not(feature = "client")))] ::core::compile_error!(#msg); },
-        "menu" => quote::quote_spanned! {span=> #[cfg(not(feature = "menu"))] ::core::compile_error!(#msg); },
+        "server" => {
+            quote::quote_spanned! {span=> #[cfg(all(feature = "client", not(feature = "server")))] ::core::compile_error!(#msg); }
+        }
+        "client" => {
+            quote::quote_spanned! {span=> #[cfg(all(feature = "server", not(feature = "client")))] ::core::compile_error!(#msg); }
+        }
+        "menu" => {
+            quote::quote_spanned! {span=> #[cfg(not(feature = "menu"))] ::core::compile_error!(#msg); }
+        }
         _ => TokenStream::new(),
     }
 }

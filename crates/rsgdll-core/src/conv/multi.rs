@@ -56,7 +56,10 @@ fn valid(lua: &Lua, idx: c_int) -> c_int {
 
 impl<T: FromLua> FromLuaMulti for Variadic<T> {
     fn from_lua_multi(lua: &Lua, first: c_int, count: c_int) -> Result<Self, ConvError> {
-        (0..count.max(0)).map(|i| T::from_lua(lua, first + i).map_err(|e| e.at(format!("#{}", i + 1)))).collect::<Result<_, _>>().map(Variadic)
+        (0..count.max(0))
+            .map(|i| T::from_lua(lua, first + i).map_err(|e| e.at(format!("#{}", i + 1))))
+            .collect::<Result<_, _>>()
+            .map(Variadic)
     }
 }
 
@@ -115,7 +118,12 @@ tuples! {
 }
 
 /// Converts the trailing `Variadic` of an export starting at 0-based position `from`.
-pub fn variadic_from<T: FromLua>(lua: &Lua, first: c_int, count: c_int, from: c_int) -> Result<Variadic<T>, (c_int, ConvError)> {
+pub fn variadic_from<T: FromLua>(
+    lua: &Lua,
+    first: c_int,
+    count: c_int,
+    from: c_int,
+) -> Result<Variadic<T>, (c_int, ConvError)> {
     (from..count.max(from))
         .map(|i| T::from_lua(lua, first + i).map_err(|e| (i + 1, e)))
         .collect::<Result<_, _>>()
@@ -123,7 +131,12 @@ pub fn variadic_from<T: FromLua>(lua: &Lua, first: c_int, count: c_int, from: c_
 }
 
 /// One export argument at 0-based position `i` (macro helper).
-pub fn arg<'a, T: FromArg<'a>>(lua: &'a Lua, first: c_int, count: c_int, i: c_int) -> Result<T, (c_int, ConvError)> {
+pub fn arg<'a, T: FromArg<'a>>(
+    lua: &'a Lua,
+    first: c_int,
+    count: c_int,
+    i: c_int,
+) -> Result<T, (c_int, ConvError)> {
     T::from_arg(lua, valid(lua, at(first, count, i))).map_err(|e| (i + 1, e))
 }
 

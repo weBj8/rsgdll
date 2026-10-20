@@ -22,7 +22,11 @@ impl LuaRef {
         let mut out = [Raw::default()];
         lua.protect(&[idx], &[Op::PushValue(1), Op::Ref(0)], &mut out)?;
         drop(g);
-        Ok(Self { id: out[0].num as c_int, generation: lua.generation(), _not_send: PhantomData })
+        Ok(Self {
+            id: out[0].num as c_int,
+            generation: lua.generation(),
+            _not_send: PhantomData,
+        })
     }
 
     pub fn id(&self) -> c_int {

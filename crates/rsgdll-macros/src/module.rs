@@ -25,7 +25,10 @@ pub fn module(input: TokenStream) -> syn::Result<TokenStream> {
         return Err(err(name.span(), "module name must be a Lua identifier"));
     }
     if !overwrite && shadows_global(&n) {
-        return Err(err(name.span(), format!("module name `{n}` shadows a GMod global; add `overwrite` to replace it")));
+        return Err(err(
+            name.span(),
+            format!("module name `{n}` shadows a GMod global; add `overwrite` to replace it"),
+        ));
     }
     let rt = rt();
     // `unsafe(no_mangle)` items use mixed-site spans so `forbid(unsafe_code)` in the user

@@ -21,7 +21,9 @@ static GENERATION: AtomicU64 = AtomicU64::new(1);
 static OPEN: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
 pub fn is_open(generation: u64) -> bool {
-    OPEN.lock().map(|v| v.contains(&generation)).unwrap_or(false)
+    OPEN.lock()
+        .map(|v| v.contains(&generation))
+        .unwrap_or(false)
 }
 
 /// Runtime data of one Lua state for this DLL.
@@ -56,7 +58,8 @@ impl Runtime {
             self.ext.borrow_mut().insert(key, v.clone());
             v
         });
-        any.downcast::<T>().unwrap_or_else(|_| panic!("rsgdll: ext slot `{key}` type mismatch"))
+        any.downcast::<T>()
+            .unwrap_or_else(|_| panic!("rsgdll: ext slot `{key}` type mismatch"))
     }
 }
 
@@ -75,7 +78,12 @@ pub fn get(l: *mut lua_State) -> Option<Rc<Runtime>> {
 }
 
 pub fn by_generation(generation: u64) -> Option<Rc<Runtime>> {
-    STATES.with(|s| s.borrow().values().find(|r| r.generation == generation).cloned())
+    STATES.with(|s| {
+        s.borrow()
+            .values()
+            .find(|r| r.generation == generation)
+            .cloned()
+    })
 }
 
 pub fn insert(main: *mut lua_State, module: &'static str, boot: Boot) -> Rc<Runtime> {
@@ -114,9 +122,13 @@ pub fn defer_unref(generation: u64, id: c_int) {
     // `try_with`: may run during thread-local destruction.
     let _ = STATES.try_with(|s| {
         if let Ok(map) = s.try_borrow() {
-            if let Some(mut q) = map.values()
+            if let Some(mut q) = map
+                .values()
                 .find(|r| r.generation == generation)
-                .and_then(|r| r.unrefs.try_borrow_mut().ok()) { q.push(id) }
+                .and_then(|r| r.unrefs.try_borrow_mut().ok())
+            {
+                q.push(id)
+            }
         }
     });
 }

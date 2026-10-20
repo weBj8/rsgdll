@@ -23,34 +23,43 @@ struct FieldAttr {
 
 fn container(input: &DeriveInput) -> syn::Result<Container> {
     let mut c = Container::default();
-    input.attrs.iter().filter(|a| a.path().is_ident("lua")).try_for_each(|a| {
-        a.parse_nested_meta(|m| {
-            match m.path.get_ident().map(ToString::to_string).as_deref() {
-                Some("rename_all") => c.rename_all = Some(m.value()?.parse::<LitStr>()?.value()),
-                Some("tag") => c.tag = Some(m.value()?.parse::<LitStr>()?.value()),
-                Some("as_number") => c.as_number = true,
-                _ => return Err(m.error("unknown #[lua] container attribute")),
-            }
-            Ok(())
-        })
-    })?;
+    input
+        .attrs
+        .iter()
+        .filter(|a| a.path().is_ident("lua"))
+        .try_for_each(|a| {
+            a.parse_nested_meta(|m| {
+                match m.path.get_ident().map(ToString::to_string).as_deref() {
+                    Some("rename_all") => {
+                        c.rename_all = Some(m.value()?.parse::<LitStr>()?.value())
+                    }
+                    Some("tag") => c.tag = Some(m.value()?.parse::<LitStr>()?.value()),
+                    Some("as_number") => c.as_number = true,
+                    _ => return Err(m.error("unknown #[lua] container attribute")),
+                }
+                Ok(())
+            })
+        })?;
     Ok(c)
 }
 
 fn field_attr(attrs: &[syn::Attribute]) -> syn::Result<FieldAttr> {
     let mut f = FieldAttr::default();
-    attrs.iter().filter(|a| a.path().is_ident("lua")).try_for_each(|a| {
-        a.parse_nested_meta(|m| {
-            match m.path.get_ident().map(ToString::to_string).as_deref() {
-                Some("rename") => f.rename = Some(m.value()?.parse::<LitStr>()?.value()),
-                Some("default") => f.default = true,
-                Some("skip") => f.skip = true,
-                Some("as_string") => f.as_string = true,
-                _ => return Err(m.error("unknown #[lua] field attribute")),
-            }
-            Ok(())
-        })
-    })?;
+    attrs
+        .iter()
+        .filter(|a| a.path().is_ident("lua"))
+        .try_for_each(|a| {
+            a.parse_nested_meta(|m| {
+                match m.path.get_ident().map(ToString::to_string).as_deref() {
+                    Some("rename") => f.rename = Some(m.value()?.parse::<LitStr>()?.value()),
+                    Some("default") => f.default = true,
+                    Some("skip") => f.skip = true,
+                    Some("as_string") => f.as_string = true,
+                    _ => return Err(m.error("unknown #[lua] field attribute")),
+                }
+                Ok(())
+            })
+        })?;
     Ok(f)
 }
 
@@ -76,7 +85,9 @@ fn words(s: &str) -> Vec<String> {
 
 fn cap(w: &str) -> String {
     let mut c = w.chars();
-    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
 }
 
 /// serde-compatible `rename_all` rules.
@@ -85,7 +96,11 @@ pub fn rename(s: &str, rule: Option<&str>) -> String {
     match rule {
         None => s.to_owned(),
         Some("PascalCase") => ws.iter().map(|w| cap(w)).collect(),
-        Some("camelCase") => ws.iter().enumerate().map(|(i, w)| if i == 0 { w.clone() } else { cap(w) }).collect(),
+        Some("camelCase") => ws
+            .iter()
+            .enumerate()
+            .map(|(i, w)| if i == 0 { w.clone() } else { cap(w) })
+            .collect(),
         Some("snake_case") => ws.join("_"),
         Some("SCREAMING_SNAKE_CASE") => ws.join("_").to_uppercase(),
         Some("kebab-case") => ws.join("-"),
@@ -108,9 +123,20 @@ fn named(fields: &syn::FieldsNamed, rule: Option<&str>) -> syn::Result<Vec<Named
         .iter()
         .map(|f| {
             let attr = field_attr(&f.attrs)?;
-            let ident = f.ident.clone().ok_or_else(|| syn::Error::new(f.span(), "expected named field"))?;
-            let key = attr.rename.clone().unwrap_or_else(|| rename(&ident.to_string(), rule));
-            Ok(NamedField { ident, ty: f.ty.clone(), key, attr })
+            let ident = f
+                .ident
+                .clone()
+                .ok_or_else(|| syn::Error::new(f.span(), "expected named field"))?;
+            let key = attr
+                .rename
+                .clone()
+                .unwrap_or_else(|| rename(&ident.to_string(), rule));
+            Ok(NamedField {
+                ident,
+                ty: f.ty.clone(),
+                key,
+                attr,
+            })
         })
         .collect()
 }
@@ -143,7 +169,9 @@ fn write_fields(rt: &TokenStream, fields: &[NamedField]) -> TokenStream {
     let writes = fields.iter().filter(|f| !f.attr.skip).map(|f| {
         let (ident, key) = (&f.ident, &f.key);
         match f.attr.as_string {
-            true => quote! { #rt::conv::table::push_field(__s, #key, #rt::conv::AsString(#ident))?; },
+            true => {
+                quote! { #rt::conv::table::push_field(__s, #key, #rt::conv::AsString(#ident))?; }
+            }
             false => quote! { #rt::conv::table::push_field(__s, #key, #ident)?; },
         }
     });
@@ -180,12 +208,19 @@ pub fn lua_value(input: DeriveInput) -> syn::Result<TokenStream> {
                 quote! { #rt::conv::FromLua::from_lua(__lua, __idx).map(Self) },
                 quote! { #rt::conv::IntoLua::into_lua(self.0, __s) },
             ),
-            _ => return Err(syn::Error::new(input.span(), "LuaValue: use named fields or a newtype")),
+            _ => {
+                return Err(syn::Error::new(
+                    input.span(),
+                    "LuaValue: use named fields or a newtype",
+                ));
+            }
         },
         Data::Enum(e) => {
             let unit_only = e.variants.iter().all(|v| matches!(v.fields, Fields::Unit));
             let vname = |v: &syn::Variant| -> syn::Result<String> {
-                Ok(field_attr(&v.attrs)?.rename.unwrap_or_else(|| rename(&v.ident.to_string(), rule)))
+                Ok(field_attr(&v.attrs)?
+                    .rename
+                    .unwrap_or_else(|| rename(&v.ident.to_string(), rule)))
             };
             match (unit_only, &c.tag, c.as_number) {
                 (true, _, true) => {
@@ -202,7 +237,8 @@ pub fn lua_value(input: DeriveInput) -> syn::Result<TokenStream> {
                     )
                 }
                 (true, _, false) => {
-                    let names: Vec<String> = e.variants.iter().map(vname).collect::<syn::Result<_>>()?;
+                    let names: Vec<String> =
+                        e.variants.iter().map(vname).collect::<syn::Result<_>>()?;
                     let ids: Vec<_> = e.variants.iter().map(|v| &v.ident).collect();
                     let expected = names.join(" | ");
                     (
@@ -225,7 +261,12 @@ pub fn lua_value(input: DeriveInput) -> syn::Result<TokenStream> {
                         let fields = match &v.fields {
                             Fields::Named(f) => named(f, None)?,
                             Fields::Unit => Vec::new(),
-                            Fields::Unnamed(_) => return Err(syn::Error::new(v.span(), "tagged enums need named or unit variants")),
+                            Fields::Unnamed(_) => {
+                                return Err(syn::Error::new(
+                                    v.span(),
+                                    "tagged enums need named or unit variants",
+                                ));
+                            }
                         };
                         let idents: Vec<_> = fields.iter().map(|f| &f.ident).collect();
                         let read = read_fields(&rt, quote!(Self::#id), &fields);
@@ -251,10 +292,20 @@ pub fn lua_value(input: DeriveInput) -> syn::Result<TokenStream> {
                         quote! { match self { #(#arms_into)* } Ok(()) },
                     )
                 }
-                (false, None, _) => return Err(syn::Error::new(input.span(), "LuaValue: enums with data need #[lua(tag = \"...\")]")),
+                (false, None, _) => {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        "LuaValue: enums with data need #[lua(tag = \"...\")]",
+                    ));
+                }
             }
         }
-        Data::Union(_) => return Err(syn::Error::new(input.span(), "LuaValue: unions are not supported")),
+        Data::Union(_) => {
+            return Err(syn::Error::new(
+                input.span(),
+                "LuaValue: unions are not supported",
+            ));
+        }
     };
     Ok(quote! {
         impl #ig #rt::conv::FromLua for #name #tg #wc {

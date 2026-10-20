@@ -33,7 +33,9 @@ fn pump_id(lua: &Lua) -> String {
 /// Registers the pump: `Think` (server/client) or `Tick`+`DrawOverlay` (menu). Skipped
 /// outside GMod (no `hook` library); tests pump manually.
 fn start_pump(lua: &Lua) -> Result<()> {
-    let Some(add) = lua.global::<Option<LuaFunction>>("hook.Add")? else { return Ok(()) };
+    let Some(add) = lua.global::<Option<LuaFunction>>("hook.Add")? else {
+        return Ok(());
+    };
     executor::get(lua);
     let events: &[&str] = match lua.is_menu() {
         true => &["Tick", "DrawOverlay"],
@@ -52,11 +54,19 @@ fn start_pump(lua: &Lua) -> Result<()> {
 }
 
 #[distributed_slice(REGISTER)]
-static START_PUMP: Ordered<fn(&Lua) -> Result<()>> = Ordered { order: i32::MAX, name: "rsgdll.pump", f: start_pump };
+static START_PUMP: Ordered<fn(&Lua) -> Result<()>> = Ordered {
+    order: i32::MAX,
+    name: "rsgdll.pump",
+    f: start_pump,
+};
 
 fn stop_all(lua: &Lua) {
     executor::stop(lua, WORKER_TIMEOUT);
 }
 
 #[distributed_slice(TEARDOWN)]
-static STOP: Ordered<fn(&Lua)> = Ordered { order: 0, name: "rsgdll.executor", f: stop_all };
+static STOP: Ordered<fn(&Lua)> = Ordered {
+    order: 0,
+    name: "rsgdll.executor",
+    f: stop_all,
+};

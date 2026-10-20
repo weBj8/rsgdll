@@ -4,9 +4,9 @@ mod common;
 
 use std::cell::RefCell;
 
-use rsgdll::prelude::*;
 use rsgdll::__rt::module::{self, ModuleInfo};
 use rsgdll::Realm;
+use rsgdll::prelude::*;
 
 thread_local! {
     static LOG: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
@@ -44,7 +44,9 @@ fn add(a: i64, b: i64) -> i64 {
 
 #[rsgdll::function]
 fn divide(a: f64, b: f64) -> Result<f64> {
-    (b != 0.0).then(|| a / b).ok_or_else(|| anyhow!("division by zero"))
+    (b != 0.0)
+        .then(|| a / b)
+        .ok_or_else(|| anyhow!("division by zero"))
 }
 
 #[rsgdll::function(name = "t.math.Clamp")]
@@ -70,11 +72,15 @@ fn boom() -> i32 {
 #[rsgdll::function]
 fn via_lua(lua: &Lua, x: i32) -> Result<i32> {
     let doubled: i32 = lua!(lua, return $x * 2)?;
-    let (a, b): (i32, String) = lua!(lua, r#"
+    let (a, b): (i32, String) = lua!(
+        lua,
+        r#"
         local n = 0
         for i = 1, 3 do if i == 2 then continue end n = n + i end
         return n + $y, "s" .. $x
-    "#, y = 10)?;
+    "#,
+        y = 10
+    )?;
     Ok(doubled + a + b.len() as i32)
 }
 
@@ -109,7 +115,11 @@ fn new_counter() -> LuaUd<Counter> {
     LuaUd(Counter { n: 0 })
 }
 
-static INFO: ModuleInfo = ModuleInfo { name: "t", realms: &[Realm::Server], gmod: false };
+static INFO: ModuleInfo = ModuleInfo {
+    name: "t",
+    realms: &[Realm::Server],
+    gmod: false,
+};
 
 fn open() -> *mut rsgdll::__rt::sys::lua_State {
     let a = common::api();
@@ -126,21 +136,46 @@ fn exports_and_lifecycle() {
     let l = open();
     assert_eq!(common::exec(l, "return t.Add(1, 2)").unwrap(), "3");
     assert_eq!(common::exec(l, "return t.Divide(4, 2)").unwrap(), "2");
-    let e = common::exec(l, "local ok, e = pcall(t.Divide, 1, 0) return tostring(ok) .. e").unwrap();
+    let e = common::exec(
+        l,
+        "local ok, e = pcall(t.Divide, 1, 0) return tostring(ok) .. e",
+    )
+    .unwrap();
     assert!(e.starts_with("false[t] t.Divide: division by zero"), "{e}");
     assert!(e.contains("rust stack traceback"), "{e}");
     let e = common::exec(l, "return t.Add('x')").unwrap_err();
-    assert!(e.contains("bad argument #1 to 't.Add' (number expected, got string)"), "{e}");
-    assert_eq!(common::exec(l, "return t.math.Clamp(5, 0, 3)").unwrap(), "3");
+    assert!(
+        e.contains("bad argument #1 to 't.Add' (number expected, got string)"),
+        "{e}"
+    );
+    assert_eq!(
+        common::exec(l, "return t.math.Clamp(5, 0, 3)").unwrap(),
+        "3"
+    );
     assert_eq!(common::exec(l, "return t.math.Clamp(-1, 0)").unwrap(), "0");
-    assert_eq!(common::exec(l, "local s, n = t.SumAll(1, 2, 3) return s .. ':' .. n").unwrap(), "6:2");
-    assert!(common::exec(l, "return t.ParseNum('zz')").unwrap_err().contains("invalid digit"));
+    assert_eq!(
+        common::exec(l, "local s, n = t.SumAll(1, 2, 3) return s .. ':' .. n").unwrap(),
+        "6:2"
+    );
+    assert!(
+        common::exec(l, "return t.ParseNum('zz')")
+            .unwrap_err()
+            .contains("invalid digit")
+    );
     let e = common::exec(l, "local ok, e = pcall(t.Boom) return e").unwrap();
     assert!(e.contains("rust panic") && e.contains("kaboom"), "{e}");
     assert_eq!(common::exec(l, "return t.Add(2, 2)").unwrap(), "4");
-    assert_eq!(common::exec(l, "return tostring(t.ServerOnly())").unwrap(), "true");
+    assert_eq!(
+        common::exec(l, "return tostring(t.ServerOnly())").unwrap(),
+        "true"
+    );
     unsafe { module::close(l) };
-    LOG.with(|g| assert_eq!(*g.borrow(), ["preopen", "postopen", "preclose", "postclose"]));
+    LOG.with(|g| {
+        assert_eq!(
+            *g.borrow(),
+            ["preopen", "postopen", "preclose", "postclose"]
+        )
+    });
 }
 
 #[test]
@@ -149,6 +184,16 @@ fn lua_macro_and_methods() {
     // 6 + (1 + 3 + 10) + len("s3") = 22
     assert_eq!(common::exec(l, "return t.ViaLua(3)").unwrap(), "22");
     let e = common::exec(l, "return t.LuaError()").unwrap_err();
-    assert!(e.contains("inner failure") && e.contains("lua! at") && e.contains("stack traceback"), "{e}");
-    assert_eq!(common::exec(l, "local c = t.NewCounter() c:Inc() return c:Inc(4) .. tostring(c)").unwrap(), "5Counter(5)");
+    assert!(
+        e.contains("inner failure") && e.contains("lua! at") && e.contains("stack traceback"),
+        "{e}"
+    );
+    assert_eq!(
+        common::exec(
+            l,
+            "local c = t.NewCounter() c:Inc() return c:Inc(4) .. tostring(c)"
+        )
+        .unwrap(),
+        "5Counter(5)"
+    );
 }

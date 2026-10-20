@@ -5,7 +5,8 @@ use rsgdll_core::conv::{FromLuaMulti, IntoLuaMulti, LuaAny, LuaBytes, LuaFunctio
 use rsgdll_core::{Lua, Result, anyhow};
 
 fn lib_fn(lua: &Lua, path: &str) -> Result<LuaFunction> {
-    lua.global::<Option<LuaFunction>>(path)?.ok_or_else(|| anyhow!("{path} is not available"))
+    lua.global::<Option<LuaFunction>>(path)?
+        .ok_or_else(|| anyhow!("{path} is not available"))
 }
 
 /// Calls a library function by dotted path.
@@ -17,16 +18,30 @@ pub mod concommand {
     use super::*;
 
     /// `concommand.Add(name, f(ply, cmd, args, argStr), help)`; removed at close.
-    pub fn add(lua: &Lua, name: &str, help: &str, f: impl Fn(&Lua, Option<PlayerRef<'_>>, Vec<String>, String) -> Result<()> + 'static) -> Result<()> {
+    pub fn add(
+        lua: &Lua,
+        name: &str,
+        help: &str,
+        f: impl Fn(&Lua, Option<PlayerRef<'_>>, Vec<String>, String) -> Result<()> + 'static,
+    ) -> Result<()> {
         let path = format!("concommand {name}");
         let cb = rsgdll_core::conv::func::create_raw(lua, path, move |lua, count| {
             let ply = rsgdll_core::conv::multi::arg::<Option<PlayerRef<'_>>>(lua, 1, count, 0)?;
-            let args = rsgdll_core::conv::multi::arg::<Option<Vec<String>>>(lua, 1, count, 2)?.unwrap_or_default();
-            let line = rsgdll_core::conv::multi::arg::<Option<String>>(lua, 1, count, 3)?.unwrap_or_default();
+            let args = rsgdll_core::conv::multi::arg::<Option<Vec<String>>>(lua, 1, count, 2)?
+                .unwrap_or_default();
+            let line = rsgdll_core::conv::multi::arg::<Option<String>>(lua, 1, count, 3)?
+                .unwrap_or_default();
             Ok(f(lua, ply, args, line))
         })?;
-        call::<_, ()>(lua, "concommand.Add", (name, cb, rsgdll_core::conv::Nil, help))?;
-        lua.runtime().ext::<std::cell::RefCell<Vec<String>>>("concommands", Default::default).borrow_mut().push(name.to_owned());
+        call::<_, ()>(
+            lua,
+            "concommand.Add",
+            (name, cb, rsgdll_core::conv::Nil, help),
+        )?;
+        lua.runtime()
+            .ext::<std::cell::RefCell<Vec<String>>>("concommands", Default::default)
+            .borrow_mut()
+            .push(name.to_owned());
         Ok(())
     }
 
@@ -36,7 +51,12 @@ pub mod concommand {
 
     /// Removes every command registered through [`add`] (called at close).
     pub fn teardown(lua: &Lua) {
-        let names: Vec<String> = lua.runtime().ext::<std::cell::RefCell<Vec<String>>>("concommands", Default::default).borrow_mut().drain(..).collect();
+        let names: Vec<String> = lua
+            .runtime()
+            .ext::<std::cell::RefCell<Vec<String>>>("concommands", Default::default)
+            .borrow_mut()
+            .drain(..)
+            .collect();
         names.iter().for_each(|n| {
             let _ = remove(lua, n);
         });
@@ -80,7 +100,13 @@ pub mod net {
     }
 
     /// `net.Start(name)` + `net.WriteData(bytes)` + send via `send` (`"Broadcast"`, ...).
-    pub fn send_bytes(lua: &Lua, name: &str, data: &[u8], send: &str, target: Option<LuaAny>) -> Result<()> {
+    pub fn send_bytes(
+        lua: &Lua,
+        name: &str,
+        data: &[u8],
+        send: &str,
+        target: Option<LuaAny>,
+    ) -> Result<()> {
         call::<_, ()>(lua, "net.Start", name)?;
         call::<_, ()>(lua, "net.WriteUInt", (data.len() as u32, 32))?;
         call::<_, ()>(lua, "net.WriteData", (LuaBytes(data.to_vec()), data.len()))?;
@@ -91,13 +117,18 @@ pub mod net {
     }
 
     /// `net.Receive(name, f(len, ply))` reading the payload written by [`send_bytes`].
-    pub fn receive_bytes(lua: &Lua, name: &str, f: impl Fn(&Lua, Vec<u8>, Option<PlayerRef<'_>>) -> Result<()> + 'static) -> Result<()> {
-        let cb = rsgdll_core::conv::func::create_raw(lua, format!("net {name}"), move |lua, count| {
-            let ply = rsgdll_core::conv::multi::arg::<Option<PlayerRef<'_>>>(lua, 1, count, 1)?;
-            Ok(call::<_, u32>(lua, "net.ReadUInt", 32)
-                .and_then(|n| call::<_, LuaBytes>(lua, "net.ReadData", n))
-                .and_then(|b| f(lua, b.0, ply)))
-        })?;
+    pub fn receive_bytes(
+        lua: &Lua,
+        name: &str,
+        f: impl Fn(&Lua, Vec<u8>, Option<PlayerRef<'_>>) -> Result<()> + 'static,
+    ) -> Result<()> {
+        let cb =
+            rsgdll_core::conv::func::create_raw(lua, format!("net {name}"), move |lua, count| {
+                let ply = rsgdll_core::conv::multi::arg::<Option<PlayerRef<'_>>>(lua, 1, count, 1)?;
+                Ok(call::<_, u32>(lua, "net.ReadUInt", 32)
+                    .and_then(|n| call::<_, LuaBytes>(lua, "net.ReadData", n))
+                    .and_then(|b| f(lua, b.0, ply)))
+            })?;
         call(lua, "net.Receive", (name, cb))
     }
 }

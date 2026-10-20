@@ -57,10 +57,17 @@ impl<'t> P<'t> {
             Tok::Number(n) => n.to_string(),
             Tok::Capture(c) => format!("${c}"),
         };
-        Err(ParseError { msg: format!("{} near '{near}'", msg.into()), span: self.span() })
+        Err(ParseError {
+            msg: format!("{} near '{near}'", msg.into()),
+            span: self.span(),
+        })
     }
     fn expect(&mut self, s: &str) -> R<()> {
-        if self.eat(s) { Ok(()) } else { self.err(format!("'{s}' expected")) }
+        if self.eat(s) {
+            Ok(())
+        } else {
+            self.err(format!("'{s}' expected"))
+        }
     }
     fn name(&mut self) -> R<String> {
         match self.peek().clone() {
@@ -73,7 +80,10 @@ impl<'t> P<'t> {
     }
 
     fn block_end(&self) -> bool {
-        matches!(self.peek(), Tok::Eof) || ["end", "else", "elseif", "until"].iter().any(|s| self.is(s))
+        matches!(self.peek(), Tok::Eof)
+            || ["end", "else", "elseif", "until"]
+                .iter()
+                .any(|s| self.is(s))
     }
 
     fn block(&mut self) -> R<Block> {
@@ -87,7 +97,13 @@ impl<'t> P<'t> {
                     false => self.exprlist()?,
                 };
                 self.eat(";");
-                out.push(Stat::Return(vals, Span { start, end: self.prev_end() }));
+                out.push(Stat::Return(
+                    vals,
+                    Span {
+                        start,
+                        end: self.prev_end(),
+                    },
+                ));
                 break;
             }
             if let Some(s) = self.statement()? {
@@ -105,13 +121,20 @@ impl<'t> P<'t> {
             }
             Tok::Sym("if") => {
                 self.i += 1;
-                let mut arms = vec![(self.expr()?, { self.expect("then")?; self.block()? })];
+                let mut arms = vec![(self.expr()?, {
+                    self.expect("then")?;
+                    self.block()?
+                })];
                 while self.eat("elseif") {
                     let c = self.expr()?;
                     self.expect("then")?;
                     arms.push((c, self.block()?));
                 }
-                let els = if self.eat("else") { Some(self.block()?) } else { None };
+                let els = if self.eat("else") {
+                    Some(self.block()?)
+                } else {
+                    None
+                };
                 self.expect("end")?;
                 Stat::If(arms, els)
             }
@@ -137,7 +160,11 @@ impl<'t> P<'t> {
                         let a = self.expr()?;
                         self.expect(",")?;
                         let b = self.expr()?;
-                        let step = if self.eat(",") { Some(self.expr()?) } else { None };
+                        let step = if self.eat(",") {
+                            Some(self.expr()?)
+                        } else {
+                            None
+                        };
                         self.expect("do")?;
                         let body = self.block()?;
                         self.expect("end")?;
@@ -169,13 +196,31 @@ impl<'t> P<'t> {
                 let mut target = Expr::Name(self.name()?, start);
                 while self.eat(".") {
                     let f = self.name()?;
-                    target = Expr::Field(Box::new(target), f, Span { start: start.start, end: self.prev_end() });
+                    target = Expr::Field(
+                        Box::new(target),
+                        f,
+                        Span {
+                            start: start.start,
+                            end: self.prev_end(),
+                        },
+                    );
                 }
-                let method = if self.eat(":") { Some(self.name()?) } else { None };
+                let method = if self.eat(":") {
+                    Some(self.name()?)
+                } else {
+                    None
+                };
                 let mut body = self.funcbody()?;
                 if let Some(m) = method {
                     body.params.insert(0, "self".into());
-                    target = Expr::Field(Box::new(target), m, Span { start: start.start, end: self.prev_end() });
+                    target = Expr::Field(
+                        Box::new(target),
+                        m,
+                        Span {
+                            start: start.start,
+                            end: self.prev_end(),
+                        },
+                    );
                 }
                 Stat::Function(target, Box::new(body))
             }
@@ -191,7 +236,11 @@ impl<'t> P<'t> {
                         while self.eat(",") {
                             names.push(self.name()?);
                         }
-                        let vals = if self.eat("=") { self.exprlist()? } else { Vec::new() };
+                        let vals = if self.eat("=") {
+                            self.exprlist()?
+                        } else {
+                            Vec::new()
+                        };
                         Stat::Local(names, vals)
                     }
                 }
@@ -223,7 +272,9 @@ impl<'t> P<'t> {
                             targets.push(self.suffixed()?);
                         }
                         self.expect("=")?;
-                        if targets.iter().any(|t| !matches!(t, Expr::Name(..) | Expr::Index(..) | Expr::Field(..))) {
+                        if targets.iter().any(|t| {
+                            !matches!(t, Expr::Name(..) | Expr::Index(..) | Expr::Field(..))
+                        }) {
                             return self.err("syntax error (cannot assign)");
                         }
                         Stat::Assign(targets, self.exprlist()?)
@@ -257,7 +308,11 @@ impl<'t> P<'t> {
         self.expect(")")?;
         let body = self.block()?;
         self.expect("end")?;
-        Ok(FuncBody { params, vararg, body })
+        Ok(FuncBody {
+            params,
+            vararg,
+            body,
+        })
     }
 
     fn exprlist(&mut self) -> R<Vec<Expr>> {
@@ -342,7 +397,11 @@ impl<'t> P<'t> {
             Tok::Sym("{") => Ok(vec![self.table()?]),
             Tok::Sym("(") => {
                 self.i += 1;
-                let a = if self.is(")") { Vec::new() } else { self.exprlist()? };
+                let a = if self.is(")") {
+                    Vec::new()
+                } else {
+                    self.exprlist()?
+                };
                 self.expect(")")?;
                 Ok(a)
             }
@@ -354,7 +413,10 @@ impl<'t> P<'t> {
         let start = self.span().start;
         let mut e = self.primary()?;
         loop {
-            let sp = |p: &Self| Span { start, end: p.prev_end() };
+            let sp = |p: &Self| Span {
+                start,
+                end: p.prev_end(),
+            };
             e = match self.peek().clone() {
                 Tok::Sym(".") => {
                     self.i += 1;
@@ -386,7 +448,10 @@ impl<'t> P<'t> {
         self.expect("{")?;
         let mut items = Vec::new();
         while !self.is("}") {
-            let item = match (self.peek().clone(), self.toks.get(self.i + 1).map(|t| &t.tok)) {
+            let item = match (
+                self.peek().clone(),
+                self.toks.get(self.i + 1).map(|t| &t.tok),
+            ) {
                 (Tok::Sym("["), _) => {
                     self.i += 1;
                     let k = self.expr()?;
@@ -431,7 +496,9 @@ mod tests {
 
     #[test]
     fn parses_glua() {
-        ok("local n = 0 for _, e in ipairs(ents.FindByClass('prop')) do if e:GetOwner() == $ply then n = n + 1 end end return math.min(n, $limit)");
+        ok(
+            "local n = 0 for _, e in ipairs(ents.FindByClass('prop')) do if e:GetOwner() == $ply then n = n + 1 end end return math.min(n, $limit)",
+        );
         ok("for i = 1, 10 do if i != 2 && !false || x then continue end end");
         ok("local t = { 1, a = 2, ['b'] = 3; f = function(...) return ... end }");
         ok("function a.b.c:d(x) self.x = x end local function f() end goto l ::l::");
@@ -443,7 +510,9 @@ mod tests {
     fn precedence() {
         let b = ok("return 1 + 2 * 3 .. 'x' .. 'y'");
         match &b[0] {
-            Stat::Return(v, _) => assert!(matches!(&v[0], Expr::Bin(_, "..", r) if matches!(**r, Expr::Bin(_, "..", _)))),
+            Stat::Return(v, _) => assert!(
+                matches!(&v[0], Expr::Bin(_, "..", r) if matches!(**r, Expr::Bin(_, "..", _)))
+            ),
             s => panic!("{s:?}"),
         }
     }

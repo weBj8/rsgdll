@@ -8,7 +8,15 @@ use rsgdll_core::{ErrorKind, LuaRef};
 use rsgdll_sys::lua::*;
 
 unsafe extern "C-unwind" fn fails(l: *mut lua_State) -> i32 {
-    unsafe { trampoline::call(l, &|_| Outcome::Err(trampoline::format_error("test", "test.Fail", "division by zero"))) }
+    unsafe {
+        trampoline::call(l, &|_| {
+            Outcome::Err(trampoline::format_error(
+                "test",
+                "test.Fail",
+                "division by zero",
+            ))
+        })
+    }
 }
 
 unsafe extern "C-unwind" fn panics(l: *mut lua_State) -> i32 {
@@ -17,10 +25,13 @@ unsafe extern "C-unwind" fn panics(l: *mut lua_State) -> i32 {
 
 unsafe extern "C-unwind" fn ok_two(l: *mut lua_State) -> i32 {
     unsafe {
-        trampoline::call(l, &|lua| match lua.run(&[], &[Op::PushNumber(1.0), Op::PushNumber(2.0)]) {
-            Ok((_, n)) => Outcome::Ok(n),
-            Err(e) => Outcome::Err(e.to_string()),
-        })
+        trampoline::call(
+            l,
+            &|lua| match lua.run(&[], &[Op::PushNumber(1.0), Op::PushNumber(2.0)]) {
+                Ok((_, n)) => Outcome::Ok(n),
+                Err(e) => Outcome::Err(e.to_string()),
+            },
+        )
     }
 }
 
@@ -28,7 +39,10 @@ unsafe extern "C-unwind" fn ok_two(l: *mut lua_State) -> i32 {
 fn err_becomes_lua_error() {
     let (l, _lua) = common::state();
     common::set_global(l, c"fail", fails);
-    let r = common::exec(l, "local ok, e = pcall(fail) return tostring(ok) .. '|' .. e");
+    let r = common::exec(
+        l,
+        "local ok, e = pcall(fail) return tostring(ok) .. '|' .. e",
+    );
     assert_eq!(r.unwrap(), "false|[test] test.Fail: division by zero");
 }
 
@@ -38,8 +52,14 @@ fn panic_becomes_lua_error_and_state_survives() {
     common::set_global(l, c"boom", panics);
     common::set_global(l, c"two", ok_two);
     let r = common::exec(l, "local ok, e = pcall(boom) return e").unwrap();
-    assert!(r.starts_with("rust panic: ") && r.contains("boom 42"), "{r}");
-    assert_eq!(common::exec(l, "local a, b = two() return a + b").unwrap(), "3");
+    assert!(
+        r.starts_with("rust panic: ") && r.contains("boom 42"),
+        "{r}"
+    );
+    assert_eq!(
+        common::exec(l, "local a, b = two() return a + b").unwrap(),
+        "3"
+    );
 }
 
 #[test]
@@ -47,12 +67,27 @@ fn lua_error_in_protected_call_is_err_with_traceback() {
     let (l, lua) = common::state();
     common::exec(l, "function thrower() error('bad thing') end").unwrap();
     let g = lua.guard();
-    let r = lua.run(&[], &[Op::PushGlobals, Op::GetField(-1, c"thrower".as_ptr()), Op::Call(0, 0)]);
+    let r = lua.run(
+        &[],
+        &[
+            Op::PushGlobals,
+            Op::GetField(-1, c"thrower".as_ptr()),
+            Op::Call(0, 0),
+        ],
+    );
     drop(g);
     match r.unwrap_err().kind() {
-        ErrorKind::Lua { message, lua_traceback } => {
+        ErrorKind::Lua {
+            message,
+            lua_traceback,
+        } => {
             assert!(message.contains("bad thing"), "{message}");
-            assert!(lua_traceback.as_deref().unwrap_or("").contains("stack traceback"));
+            assert!(
+                lua_traceback
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("stack traceback")
+            );
         }
         k => panic!("{k:?}"),
     }
@@ -83,7 +118,10 @@ fn closed_state_refs_report_state_closed() {
     unsafe { (a.lua_pushnil)(l) };
     let r = LuaRef::new(&lua, -1).unwrap();
     let (_l2, lua2) = common::state();
-    assert!(matches!(r.push(&lua2).unwrap_err().kind(), ErrorKind::StateClosed));
+    assert!(matches!(
+        r.push(&lua2).unwrap_err().kind(),
+        ErrorKind::StateClosed
+    ));
     rsgdll_core::lua::close_state(lua);
     drop(r); // stale generation: discarded, no map access
 }
@@ -94,7 +132,9 @@ fn oom_fallback_message_is_interned() {
     let g = lua.guard();
     lua.push_ref(lua.runtime().boot.oom_message);
     let raw = lua.read(-1);
-    let s = unsafe { std::str::from_utf8(std::slice::from_raw_parts(raw.ptr.cast::<u8>(), raw.len)).unwrap() };
+    let s = unsafe {
+        std::str::from_utf8(std::slice::from_raw_parts(raw.ptr.cast::<u8>(), raw.len)).unwrap()
+    };
     assert_eq!(s, "[test] error (message allocation failed)");
     drop(g);
 }

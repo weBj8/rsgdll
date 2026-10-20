@@ -32,7 +32,9 @@ fn identifiers(bytes: &[u8]) -> impl Iterator<Item = &str> {
 }
 
 fn is_api(s: &str) -> bool {
-    ["lua_", "luaL_", "luaJIT_"].iter().any(|p| s.starts_with(p))
+    ["lua_", "luaL_", "luaJIT_"]
+        .iter()
+        .any(|p| s.starts_with(p))
 }
 
 fn unwinding(bytes: &[u8], is_pe: bool) -> &'static str {
@@ -62,14 +64,21 @@ fn glua_syntax(file: &Path) -> Result<Vec<(&'static str, bool)>, String> {
     let lib = open_global(file)?;
     // SAFETY: symbols have the documented Lua 5.1 C API signatures.
     unsafe {
-        let new: libloading::Symbol<NewState> = lib.get(b"luaL_newstate").map_err(|e| e.to_string())?;
-        let load: libloading::Symbol<LoadBuffer> = lib.get(b"luaL_loadbuffer").map_err(|e| e.to_string())?;
+        let new: libloading::Symbol<NewState> =
+            lib.get(b"luaL_newstate").map_err(|e| e.to_string())?;
+        let load: libloading::Symbol<LoadBuffer> =
+            lib.get(b"luaL_loadbuffer").map_err(|e| e.to_string())?;
         let close: libloading::Symbol<Close> = lib.get(b"lua_close").map_err(|e| e.to_string())?;
         let l = new();
         let name = CString::new("=probe").map_err(|e| e.to_string())?;
         let out = GLUA_SNIPPETS
             .iter()
-            .map(|(n, src)| (*n, load(l, src.as_ptr().cast(), src.len(), name.as_ptr()) == 0))
+            .map(|(n, src)| {
+                (
+                    *n,
+                    load(l, src.as_ptr().cast(), src.len(), name.as_ptr()) == 0,
+                )
+            })
             .collect();
         close(l);
         Ok(out)
@@ -94,7 +103,10 @@ fn open_global(p: &Path) -> Result<libloading::Library, String> {
 pub fn probe(file: &Path) -> Result<Report, String> {
     let bytes = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let is_pe = bytes.starts_with(b"MZ");
-    let mut symbols: Vec<String> = identifiers(&bytes).filter(|s| is_api(s)).map(str::to_owned).collect();
+    let mut symbols: Vec<String> = identifiers(&bytes)
+        .filter(|s| is_api(s))
+        .map(str::to_owned)
+        .collect();
     symbols.sort();
     symbols.dedup();
     let version = symbols
@@ -105,7 +117,13 @@ pub fn probe(file: &Path) -> Result<Report, String> {
         eprintln!("glua syntax probe skipped: {e}");
         Vec::new()
     });
-    Ok(Report { file: file.to_owned(), version, unwinding: unwinding(&bytes, is_pe), symbols, glua })
+    Ok(Report {
+        file: file.to_owned(),
+        version,
+        unwinding: unwinding(&bytes, is_pe),
+        symbols,
+        glua,
+    })
 }
 
 pub fn render(r: &Report) -> String {
@@ -113,7 +131,14 @@ pub fn render(r: &Report) -> String {
         format!("file: {}", r.file.display()),
         format!("luajit: {}", r.version.as_deref().unwrap_or("unknown")),
         format!("unwinding: {}", r.unwinding),
-        format!("glua: {}", r.glua.iter().map(|(n, ok)| format!("{n}={ok}")).collect::<Vec<_>>().join(" ")),
+        format!(
+            "glua: {}",
+            r.glua
+                .iter()
+                .map(|(n, ok)| format!("{n}={ok}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
         format!("symbols ({}):", r.symbols.len()),
     ]
     .into_iter()

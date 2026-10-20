@@ -64,14 +64,19 @@ pub struct ModuleInfo {
 fn remove_exports(lua: &Lua, paths: &[String]) {
     paths.iter().for_each(|p| {
         if let Err(e) = lua.set_global(p.as_str(), crate::conv::Nil) {
-            rsgdll_sys::tier0::msg(&format!("[{}] cleanup: failed to remove {p}: {e}\n", lua.module_name()));
+            rsgdll_sys::tier0::msg(&format!(
+                "[{}] cleanup: failed to remove {p}: {e}\n",
+                lua.module_name()
+            ));
         }
     });
 }
 
 /// Steps 2-4 of §8.1 after the runtime exists; on error cleans up and returns `Err`.
 fn open_steps(lua: &Lua, info: &ModuleInfo) -> Result<()> {
-    sorted(&PREOPEN).iter().try_for_each(|h| (h.f)(lua).map_err(|e| e.context(format!("preopen `{}`", h.name))))?;
+    sorted(&PREOPEN)
+        .iter()
+        .try_for_each(|h| (h.f)(lua).map_err(|e| e.context(format!("preopen `{}`", h.name))))?;
     let realm = lua.realm();
     let mut registered: Vec<String> = Vec::new();
     let reg = EXPORTS
@@ -85,10 +90,15 @@ fn open_steps(lua: &Lua, info: &ModuleInfo) -> Result<()> {
                 .and_then(|()| crate::refs::LuaRef::new(lua, -1))
                 .and_then(|f| lua.set_global(&path, crate::conv::LuaAny(f)));
             drop(g);
-            r.map_err(|err| err.context(format!("registering `{path}`"))).map(|()| registered.push(path))
+            r.map_err(|err| err.context(format!("registering `{path}`")))
+                .map(|()| registered.push(path))
         })
         .and_then(|()| sorted(&REGISTER).iter().try_for_each(|r| (r.f)(lua)))
-        .and_then(|()| sorted(&POSTOPEN).iter().try_for_each(|h| (h.f)(lua).map_err(|e| e.context(format!("postopen `{}`", h.name)))));
+        .and_then(|()| {
+            sorted(&POSTOPEN).iter().try_for_each(|h| {
+                (h.f)(lua).map_err(|e| e.context(format!("postopen `{}`", h.name)))
+            })
+        });
     let _ = info;
     reg.inspect_err(|_| {
         remove_exports(lua, &registered);
@@ -113,7 +123,12 @@ fn open_inner(l: *mut lua_State, info: &'static ModuleInfo) -> bool {
     };
     if !main {
         // SAFETY: static string; may raise on OOM, nothing with Drop is live in Lua's view.
-        unsafe { (api.lua_pushstring)(l, c"rsgdll: modules must be required from the main thread, not a coroutine".as_ptr()) };
+        unsafe {
+            (api.lua_pushstring)(
+                l,
+                c"rsgdll: modules must be required from the main thread, not a coroutine".as_ptr(),
+            )
+        };
         return true;
     }
     // SAFETY: main thread verified above.
@@ -131,7 +146,10 @@ fn open_inner(l: *mut lua_State, info: &'static ModuleInfo) -> bool {
     match setup {
         Ok(()) => false,
         Err(e) => {
-            trampoline::push_message(&lua, &trampoline::format_error(info.name, "require", &e.lua_message()));
+            trampoline::push_message(
+                &lua,
+                &trampoline::format_error(info.name, "require", &e.lua_message()),
+            );
             // Failed open: drop the runtime now; GMod is not assumed to call gmod13_close.
             crate::lua::close_state(lua);
             true
@@ -158,11 +176,17 @@ pub unsafe fn open(l: *mut lua_State, info: &'static ModuleInfo) -> c_int {
 /// Called by GMod with the state previously passed to [`open`].
 pub unsafe fn close(l: *mut lua_State) -> c_int {
     // SAFETY: a failed open removed its entry, so this is a no-op then.
-    let Ok(lua) = (unsafe { Lua::from_raw(l) }) else { return 0 };
+    let Ok(lua) = (unsafe { Lua::from_raw(l) }) else {
+        return 0;
+    };
     sorted(&PRECLOSE).iter().for_each(|h| {
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (h.f)(&lua)));
         if r.is_err() {
-            rsgdll_sys::tier0::warning(&format!("[{}] preclose `{}` panicked\n", lua.module_name(), h.name));
+            rsgdll_sys::tier0::warning(&format!(
+                "[{}] preclose `{}` panicked\n",
+                lua.module_name(),
+                h.name
+            ));
         }
     });
     crate::tracked::teardown(&lua);
@@ -178,7 +202,8 @@ pub unsafe fn close(l: *mut lua_State) -> c_int {
 impl Lua {
     /// Pushes a C function (protected: allocates).
     pub fn push_cfunction(&self, f: CFunc) -> Result<()> {
-        self.run(&[], &[crate::protected::Op::PushCClosure(f, 0)]).map(|_| ())
+        self.run(&[], &[crate::protected::Op::PushCClosure(f, 0)])
+            .map(|_| ())
     }
 
     /// `_G` pseudo-index (for raw users).

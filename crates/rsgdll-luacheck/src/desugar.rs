@@ -33,13 +33,22 @@ fn gap(src: &str, from: usize, to: usize) -> String {
         true => g.to_owned(),
         false => {
             let nl = g.matches('\n').count();
-            if nl == 0 { " ".to_owned() } else { "\n".repeat(nl) }
+            if nl == 0 {
+                " ".to_owned()
+            } else {
+                "\n".repeat(nl)
+            }
         }
     }
 }
 
 pub fn desugar(src: &str) -> Result<String, Diagnostic> {
-    let toks = lex(src).map_err(|e| Diagnostic { severity: Severity::Error, kind: Kind::Syntax, msg: e.msg, span: e.span })?;
+    let toks = lex(src).map_err(|e| Diagnostic {
+        severity: Severity::Error,
+        kind: Kind::Syntax,
+        msg: e.msg,
+        span: e.span,
+    })?;
     let mut out = String::new();
     let mut stack: Vec<Block> = Vec::new();
     let mut loop_do = false;
@@ -49,7 +58,13 @@ pub fn desugar(src: &str) -> Result<String, Diagnostic> {
     for t in toks.iter().filter(|t| t.tok != Tok::Eof) {
         out.push_str(&gap(src, at, t.span.start));
         at = t.span.end;
-        let label = |id: usize, used: &Vec<usize>| if used.contains(&id) { format!(" ::__continue_{id}:: ") } else { Default::default() };
+        let label = |id: usize, used: &Vec<usize>| {
+            if used.contains(&id) {
+                format!(" ::__continue_{id}:: ")
+            } else {
+                Default::default()
+            }
+        };
         match &t.tok {
             Tok::Sym("function") => stack.push(Block::Func),
             Tok::Sym("if") => stack.push(Block::If),
@@ -75,17 +90,28 @@ pub fn desugar(src: &str) -> Result<String, Diagnostic> {
                 }
             }
             Tok::Sym("continue") => {
-                let target = stack.iter().rev().take_while(|b| **b != Block::Func).find_map(|b| match b {
-                    Block::Loop(id) | Block::Repeat(id) => Some(*id),
-                    _ => None,
-                });
+                let target = stack
+                    .iter()
+                    .rev()
+                    .take_while(|b| **b != Block::Func)
+                    .find_map(|b| match b {
+                        Block::Loop(id) | Block::Repeat(id) => Some(*id),
+                        _ => None,
+                    });
                 match target {
                     Some(id) => {
                         used.push(id);
                         out.push_str(&format!("goto __continue_{id}"));
                         continue;
                     }
-                    None => return Err(Diagnostic { severity: Severity::Error, kind: Kind::Syntax, msg: "'continue' outside a loop".into(), span: t.span }),
+                    None => {
+                        return Err(Diagnostic {
+                            severity: Severity::Error,
+                            kind: Kind::Syntax,
+                            msg: "'continue' outside a loop".into(),
+                            span: t.span,
+                        });
+                    }
                 }
             }
             _ => {}
@@ -102,7 +128,10 @@ mod tests {
 
     #[test]
     fn rewrites_glua() {
-        assert_eq!(desugar("if a != b && !c || d then end // x").unwrap(), "if a ~= b  and  not c  or  d then end ");
+        assert_eq!(
+            desugar("if a != b && !c || d then end // x").unwrap(),
+            "if a ~= b  and  not c  or  d then end "
+        );
         assert_eq!(
             desugar("for i=1,3 do if i==2 then continue end print(i) end").unwrap(),
             "for i=1,3 do if i==2 then goto __continue_1 end print(i)  ::__continue_1:: end"

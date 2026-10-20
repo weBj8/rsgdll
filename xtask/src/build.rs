@@ -16,7 +16,12 @@ pub enum Platform {
 }
 
 impl Platform {
-    pub const ALL: [Platform; 4] = [Platform::Win32, Platform::Win64, Platform::Linux, Platform::Linux64];
+    pub const ALL: [Platform; 4] = [
+        Platform::Win32,
+        Platform::Win64,
+        Platform::Linux,
+        Platform::Linux64,
+    ];
 
     pub fn parse(s: &str) -> Option<Vec<Platform>> {
         Some(match s {
@@ -51,8 +56,12 @@ impl Platform {
     fn cargo(self, native: bool) -> (Vec<String>, String) {
         match (self, native) {
             (Platform::Linux64, true) => (vec!["build".into()], self.triple().into()),
-            (Platform::Linux | Platform::Linux64, _) => (vec!["zigbuild".into()], format!("{}.2.17", self.triple())),
-            (Platform::Win32 | Platform::Win64, _) => (vec!["xwin".into(), "build".into()], self.triple().into()),
+            (Platform::Linux | Platform::Linux64, _) => {
+                (vec!["zigbuild".into()], format!("{}.2.17", self.triple()))
+            }
+            (Platform::Win32 | Platform::Win64, _) => {
+                (vec!["xwin".into(), "build".into()], self.triple().into())
+            }
         }
     }
 
@@ -110,9 +119,14 @@ pub struct Spec {
 pub fn build(s: &Spec) -> Result<PathBuf, String> {
     let root = config::workspace_root();
     let (sub, target) = s.platform.cargo(s.native);
-    let features = std::iter::once(s.realm.features(s.menu)).chain(s.extra_features.iter().cloned()).collect::<Vec<_>>().join(",");
+    let features = std::iter::once(s.realm.features(s.menu))
+        .chain(s.extra_features.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(",");
     // A per-realm target dir keeps feature sets from invalidating each other.
-    let target_dir = root.join("target").join(format!("realm-{}", s.realm.prefix()));
+    let target_dir = root
+        .join("target")
+        .join(format!("realm-{}", s.realm.prefix()));
     let mut cmd = Command::new("cargo");
     if !s.native {
         // Cross linkers (zig, lld-link) reject host-specific link args from a user's global
@@ -123,7 +137,15 @@ pub fn build(s: &Spec) -> Result<PathBuf, String> {
     }
     let status = cmd
         .args(&sub)
-        .args(["-p", &s.krate, "--target", &target, "--no-default-features", "--features", &features])
+        .args([
+            "-p",
+            &s.krate,
+            "--target",
+            &target,
+            "--no-default-features",
+            "--features",
+            &features,
+        ])
         .args(s.release.then_some("--release"))
         .arg("--target-dir")
         .arg(&target_dir)
@@ -131,14 +153,26 @@ pub fn build(s: &Spec) -> Result<PathBuf, String> {
         .status()
         .map_err(|e| format!("cargo {}: {e}", sub.join(" ")))?;
     if !status.success() {
-        return Err(format!("build of {} for {} failed", s.krate, s.platform.suffix()));
+        return Err(format!(
+            "build of {} for {} failed",
+            s.krate,
+            s.platform.suffix()
+        ));
     }
     let triple_dir = target.split(".2.").next().unwrap_or(&target).to_owned();
     let profile = if s.release { "release" } else { "debug" };
-    let built = target_dir.join(triple_dir).join(profile).join(s.platform.artifact(&s.krate));
+    let built = target_dir
+        .join(triple_dir)
+        .join(profile)
+        .join(s.platform.artifact(&s.krate));
     let out_dir = root.join("target/gmod");
     std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-    let out = out_dir.join(format!("{}_{}_{}.dll", s.realm.prefix(), s.module, s.platform.suffix()));
+    let out = out_dir.join(format!(
+        "{}_{}_{}.dll",
+        s.realm.prefix(),
+        s.module,
+        s.platform.suffix()
+    ));
     std::fs::copy(&built, &out).map_err(|e| format!("{}: {e}", built.display()))?;
     Ok(out)
 }
@@ -178,10 +212,26 @@ pub fn parse_line(line: &str) -> Option<(String, bool, String)> {
 
 /// Runs srcds with the installed test scripts until `RSGDLL_TEST_DONE` or timeout.
 /// `extra` = additional console args (e.g. `+changelevel` driven by the test itself).
-pub fn run_srcds(timeout: Duration, done_marker_count: usize, extra: &[&str]) -> Result<Run, String> {
+pub fn run_srcds(
+    timeout: Duration,
+    done_marker_count: usize,
+    extra: &[&str],
+) -> Result<Run, String> {
     let dir = config::srcds_dir()?;
     let mut child = Command::new(dir.join("srcds_run_x64"))
-        .args(["-game", "garrysmod", "-norestart", "-port", "27199", "+maxplayers", "2", "+map", "gm_construct", "+sv_hibernate_think", "1"])
+        .args([
+            "-game",
+            "garrysmod",
+            "-norestart",
+            "-port",
+            "27199",
+            "+maxplayers",
+            "2",
+            "+map",
+            "gm_construct",
+            "+sv_hibernate_think",
+            "1",
+        ])
         .args(extra)
         .current_dir(&dir)
         .stdin(Stdio::null())
@@ -193,11 +243,25 @@ pub fn run_srcds(timeout: Duration, done_marker_count: usize, extra: &[&str]) ->
     let stderr = child.stderr.take().ok_or("no stderr")?;
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let tx2 = tx.clone();
-    std::thread::spawn(move || BufReader::new(stdout).lines().map_while(Result::ok).for_each(|l| drop(tx.send(l))));
+    std::thread::spawn(move || {
+        BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+            .for_each(|l| drop(tx.send(l)))
+    });
     // tier0 Msg/Warning and early-load failures can go to stderr; keep them in the log.
-    std::thread::spawn(move || BufReader::new(stderr).lines().map_while(Result::ok).for_each(|l| drop(tx2.send(format!("[stderr] {l}")))));
+    std::thread::spawn(move || {
+        BufReader::new(stderr)
+            .lines()
+            .map_while(Result::ok)
+            .for_each(|l| drop(tx2.send(format!("[stderr] {l}"))))
+    });
     let start = Instant::now();
-    let mut run = Run { results: Vec::new(), done: false, log: Vec::new() };
+    let mut run = Run {
+        results: Vec::new(),
+        done: false,
+        log: Vec::new(),
+    };
     // Distinct `RSGDLL_TEST_DONE <script>` markers (a reload test re-runs other scripts).
     let mut dones: std::collections::HashSet<String> = std::collections::HashSet::new();
     while start.elapsed() < timeout && dones.len() < done_marker_count {
@@ -231,8 +295,14 @@ mod tests {
 
     #[test]
     fn parses_result_lines() {
-        assert_eq!(parse_line("RSGDLL_TEST add PASS "), Some(("add".into(), true, "".into())));
-        assert_eq!(parse_line("x RSGDLL_TEST e FAIL boom here"), Some(("e".into(), false, "boom here".into())));
+        assert_eq!(
+            parse_line("RSGDLL_TEST add PASS "),
+            Some(("add".into(), true, "".into()))
+        );
+        assert_eq!(
+            parse_line("x RSGDLL_TEST e FAIL boom here"),
+            Some(("e".into(), false, "boom here".into()))
+        );
         assert_eq!(parse_line("nothing"), None);
         assert_eq!(Platform::Linux64.artifact("m"), "libm.so");
         assert_eq!(Platform::Win32.cargo(false).1, "i686-pc-windows-msvc");

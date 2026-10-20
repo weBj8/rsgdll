@@ -29,7 +29,12 @@ pub fn attach(lua: &Lua, info: &ModuleInfo) -> Result<()> {
             // SAFETY: GMod's luabase is a CLuaInterface; these slots are non-raising queries.
             let (top, s, c, m) = unsafe {
                 let vt = (*iface).vt();
-                ((vt.top)(iface.cast()), (vt.is_server)(iface.cast()), (vt.is_client)(iface.cast()), (vt.is_menu)(iface.cast()))
+                (
+                    (vt.top)(iface.cast()),
+                    (vt.is_server)(iface.cast()),
+                    (vt.is_client)(iface.cast()),
+                    (vt.is_menu)(iface.cast()),
+                )
             };
             let exactly_one = [s, c, m].iter().filter(|b| **b).count() == 1;
             if base.is_null() || !exactly_one || top != lua.top() {
@@ -45,8 +50,15 @@ pub fn attach(lua: &Lua, info: &ModuleInfo) -> Result<()> {
     };
     set_ext(lua, "realm", realm);
     match realm {
-        Some(r) if !info.realms.contains(&r) && !(r == Realm::Menu && info.realms.contains(&Realm::Client)) => {
-            Err(Error::msg(format!("module built for {:?} cannot load in the {} state", info.realms, r.as_str())))
+        Some(r)
+            if !info.realms.contains(&r)
+                && !(r == Realm::Menu && info.realms.contains(&Realm::Client)) =>
+        {
+            Err(Error::msg(format!(
+                "module built for {:?} cannot load in the {} state",
+                info.realms,
+                r.as_str()
+            )))
         }
         _ => Ok(()),
     }
@@ -76,7 +88,16 @@ unsafe extern "C-unwind" fn run_string_step(_l: *mut lua_State, data: *mut c_voi
     unsafe {
         if let Some(r) = data.cast::<RunString>().as_mut() {
             let vt = (*r.iface).vt();
-            r.ok = (vt.run_string_ex)(r.iface.cast(), r.name, r.path, r.code, true, false, false, true);
+            r.ok = (vt.run_string_ex)(
+                r.iface.cast(),
+                r.name,
+                r.path,
+                r.code,
+                true,
+                false,
+                false,
+                true,
+            );
         }
     }
 }
@@ -119,7 +140,14 @@ struct FindRun {
 unsafe extern "C-unwind" fn find_run_step(_l: *mut lua_State, data: *mut c_void) {
     unsafe {
         if let Some(p) = data.cast::<FindRun>().as_mut() {
-            p.ok = ((*p.iface).vt().find_and_run_script)(p.iface.cast(), p.name, true, true, c"".as_ptr(), true);
+            p.ok = ((*p.iface).vt().find_and_run_script)(
+                p.iface.cast(),
+                p.name,
+                true,
+                true,
+                c"".as_ptr(),
+                true,
+            );
         }
     }
 }
@@ -144,14 +172,24 @@ impl<'l> LuaInterface<'l> {
         // SAFETY: returns a pointer into CLuaInterface::m_sPathID (NUL-terminated).
         unsafe {
             let p = ((*self.ptr).vt().get_path_id)(self.ptr.cast());
-            if p.is_null() { String::new() } else { std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned() }
+            if p.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+            }
         }
     }
 
     /// Runs Lua code like `RunString`; a compile/runtime error is `Err`.
     pub fn run_string(&self, name: &str, path: &str, code: &str) -> Result<()> {
         let (n, p, c) = (cstr(name)?, cstr(path)?, cstr(code)?);
-        let mut r = RunString { iface: self.ptr, name: n.as_ptr(), path: p.as_ptr(), code: c.as_ptr(), ok: false };
+        let mut r = RunString {
+            iface: self.ptr,
+            name: n.as_ptr(),
+            path: p.as_ptr(),
+            code: c.as_ptr(),
+            ok: false,
+        };
         self.main_op(&[Op::Raw(run_string_step, crate::state::light_mut(&mut r))])?;
         match r.ok {
             true => Ok(()),
@@ -161,14 +199,22 @@ impl<'l> LuaInterface<'l> {
 
     pub fn find_and_run_script(&self, file: &str) -> Result<bool> {
         let f = cstr(file)?;
-        let mut r = FindRun { iface: self.ptr, name: f.as_ptr(), ok: false };
-        self.main_op(&[Op::Raw(find_run_step, crate::state::light_mut(&mut r))]).map(|()| r.ok)
+        let mut r = FindRun {
+            iface: self.ptr,
+            name: f.as_ptr(),
+            ok: false,
+        };
+        self.main_op(&[Op::Raw(find_run_step, crate::state::light_mut(&mut r))])
+            .map(|()| r.ok)
     }
 
     /// `require(name)` through GMod.
     pub fn require(&self, name: &str) -> Result<()> {
         let n = cstr(name)?;
-        let mut r = Named { iface: self.ptr, name: n.as_ptr() };
+        let mut r = Named {
+            iface: self.ptr,
+            name: n.as_ptr(),
+        };
         self.main_op(&[Op::Raw(require_step, crate::state::light_mut(&mut r))])
     }
 
@@ -188,7 +234,10 @@ impl<'l> LuaInterface<'l> {
     /// Pushes a pooled string (`util.NetworkStringToID`-style index) onto the stack.
     /// From a coroutine the value is pushed on the main stack and moved (spec §6.1a).
     pub fn push_pooled_string(&self, index: i32) -> Result<()> {
-        let mut p = Pooled { iface: self.ptr, index };
+        let mut p = Pooled {
+            iface: self.ptr,
+            index,
+        };
         let (main, cur) = (self.lua.main_thread(), self.lua.raw());
         let step = Op::Raw(pooled_step, crate::state::light_mut(&mut p));
         let ops: Vec<Op> = match main == cur {
@@ -214,12 +263,16 @@ impl<'l> LuaInterface<'l> {
 impl Lua {
     /// `ILuaInterface` of this state (only in GMod).
     pub fn interface(&self) -> Result<LuaInterface<'_>> {
-        self.base().map(|b| LuaInterface { lua: self, ptr: b.cast() })
+        self.base().map(|b| LuaInterface {
+            lua: self,
+            ptr: b.cast(),
+        })
     }
 
     /// Raw `ILuaBase*` of the main thread (opt-in raw access, spec §1).
     pub fn base(&self) -> Result<*mut ILuaBase> {
-        crate::conv::gmod::luabase(self).ok_or_else(|| Error::msg("ILuaBase is only available inside GMod"))
+        crate::conv::gmod::luabase(self)
+            .ok_or_else(|| Error::msg("ILuaBase is only available inside GMod"))
     }
 }
 
@@ -237,7 +290,8 @@ pub fn lua_shared() -> Result<&'static LuaShared> {
     S.get_or_init(|| {
         let loaded = rsgdll_sys::lua_shared().ok()?;
         // SAFETY: the returned pointer is an ILuaShared per garrysmod_common.
-        unsafe { rsgdll_sys::loader::create_interface(&loaded.lib, LUASHARED_INTERFACE) }.map(|p| LuaShared { ptr: p.cast() })
+        unsafe { rsgdll_sys::loader::create_interface(&loaded.lib, LUASHARED_INTERFACE) }
+            .map(|p| LuaShared { ptr: p.cast() })
     })
     .as_ref()
     .ok_or_else(|| Error::msg("CreateInterface(LUASHARED003) failed"))
@@ -259,7 +313,12 @@ impl LuaShared {
 
     pub fn lua_interface(&'static self, realm: Realm) -> Option<RealmInterface> {
         let p = self.get(realm);
-        (!p.is_null()).then_some(RealmInterface { shared: self, realm, seen: p, _not_send: PhantomData })
+        (!p.is_null()).then_some(RealmInterface {
+            shared: self,
+            realm,
+            seen: p,
+            _not_send: PhantomData,
+        })
     }
 
     /// `GetStackTraces()` (all realms, formatted by GMod).
@@ -267,7 +326,11 @@ impl LuaShared {
         // SAFETY: returns a C string owned by lua_shared.
         unsafe {
             let p = ((*self.ptr).vt().get_stack_traces)(self.ptr.cast());
-            if p.is_null() { String::new() } else { std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned() }
+            if p.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+            }
         }
     }
 
@@ -280,17 +343,21 @@ impl RealmInterface {
     /// Current pointer, or `StateClosed` if the realm's state changed or is gone.
     pub fn ptr(&self) -> Result<*mut ILuaInterface> {
         let now = self.shared.get(self.realm);
-        (!now.is_null() && now == self.seen).then_some(now).ok_or_else(Error::state_closed)
+        (!now.is_null() && now == self.seen)
+            .then_some(now)
+            .ok_or_else(Error::state_closed)
     }
 
     pub fn is_server(&self) -> Result<bool> {
         // SAFETY: validated pointer, non-raising getter.
-        self.ptr().map(|p| unsafe { ((*p).vt().is_server)(p.cast()) })
+        self.ptr()
+            .map(|p| unsafe { ((*p).vt().is_server)(p.cast()) })
     }
 
     pub fn msg(&self, text: &str) -> Result<()> {
         let t = CString::new(text.replace('\0', "")).unwrap_or_default();
-        self.ptr().map(|p| unsafe { ((*p).vt().msg)(p.cast(), c"%s".as_ptr(), t.as_ptr()) })
+        self.ptr()
+            .map(|p| unsafe { ((*p).vt().msg)(p.cast(), c"%s".as_ptr(), t.as_ptr()) })
     }
 }
 

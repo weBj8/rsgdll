@@ -18,7 +18,11 @@ pub trait Hook {
 }
 
 /// Wraps a callback converting its args with `conv`; errors are raised into the hook runner.
-fn callback(lua: &Lua, path: String, f: impl Fn(&Lua, i32) -> std::result::Result<Outcome, (i32, rsgdll_core::ConvError)> + 'static) -> Result<LuaFunction> {
+fn callback(
+    lua: &Lua,
+    path: String,
+    f: impl Fn(&Lua, i32) -> std::result::Result<Outcome, (i32, rsgdll_core::ConvError)> + 'static,
+) -> Result<LuaFunction> {
     let boxed: Box<dyn Fn(&Lua) -> Outcome> = Box::new(move |lua| {
         let count = lua.top();
         f(lua, count).unwrap_or_else(|(n, e)| bad_argument(lua, &path, n, &e))
@@ -33,12 +37,17 @@ fn callback(lua: &Lua, path: String, f: impl Fn(&Lua, i32) -> std::result::Resul
 fn outcome<R: IntoLuaMulti>(lua: &Lua, count: i32, path: &str, r: Result<R>) -> Outcome {
     match r {
         Ok(v) => returns(lua, count, path, v),
-        Err(e) => Outcome::Err(trampoline::format_error(lua.module_name(), path, &e.lua_message())),
+        Err(e) => Outcome::Err(trampoline::format_error(
+            lua.module_name(),
+            path,
+            &e.lua_message(),
+        )),
     }
 }
 
 fn hook_fn(lua: &Lua, name: &str) -> Result<LuaFunction> {
-    lua.global::<Option<LuaFunction>>(&format!("hook.{name}"))?.ok_or_else(|| rsgdll_core::anyhow!("hook.{name} is not available"))
+    lua.global::<Option<LuaFunction>>(&format!("hook.{name}"))?
+        .ok_or_else(|| rsgdll_core::anyhow!("hook.{name} is not available"))
 }
 
 /// `hook.Add(event, id, f)` with a ready Lua function; tracked for removal at close.
@@ -59,7 +68,9 @@ where
 {
     let path = format!("hook {event}/{id}");
     let p2 = path.clone();
-    let cb = callback(lua, path, move |lua, count| A::from_args(lua, 1, count).map(|a| outcome(lua, count, &p2, f(lua, a))))?;
+    let cb = callback(lua, path, move |lua, count| {
+        A::from_args(lua, 1, count).map(|a| outcome(lua, count, &p2, f(lua, a)))
+    })?;
     add_function(lua, event, id, cb)
 }
 
@@ -71,13 +82,20 @@ where
 {
     let path = format!("hook {}/{id}", H::NAME);
     let p2 = path.clone();
-    let cb = callback(lua, path, move |lua, count| H::Args::from_args(lua, 1, count).map(|a| outcome(lua, count, &p2, f(lua, a))))?;
+    let cb = callback(lua, path, move |lua, count| {
+        H::Args::from_args(lua, 1, count).map(|a| outcome(lua, count, &p2, f(lua, a)))
+    })?;
     add_function(lua, H::NAME, id, cb)
 }
 
 /// Positional-conversion variant used by `#[rsgdll::hook]` (the macro converts params).
 #[doc(hidden)]
-pub fn add_raw(lua: &Lua, event: &str, id: &str, f: impl Fn(&Lua, i32) -> std::result::Result<Outcome, (i32, rsgdll_core::ConvError)> + 'static) -> Result<()> {
+pub fn add_raw(
+    lua: &Lua,
+    event: &str,
+    id: &str,
+    f: impl Fn(&Lua, i32) -> std::result::Result<Outcome, (i32, rsgdll_core::ConvError)> + 'static,
+) -> Result<()> {
     let cb = callback(lua, format!("hook {event}/{id}"), f)?;
     add_function(lua, event, id, cb)
 }
@@ -100,7 +118,12 @@ pub fn run<'a, H: Hook>(lua: &Lua, args: H::Args<'a>) -> Result<H::Ret> {
 }
 
 /// `hook.Call(event, gm, args...)`.
-pub fn call_custom<A: IntoLuaMulti, R: FromLuaMulti>(lua: &Lua, event: &str, gm: Option<&LuaTable>, args: A) -> Result<R> {
+pub fn call_custom<A: IntoLuaMulti, R: FromLuaMulti>(
+    lua: &Lua,
+    event: &str,
+    gm: Option<&LuaTable>,
+    args: A,
+) -> Result<R> {
     hook_fn(lua, "Call")?.call(lua, Chain((event, gm), args))
 }
 
@@ -115,7 +138,10 @@ pub fn call<'a, H: Hook>(lua: &Lua, gm: Option<&LuaTable>, args: H::Args<'a>) ->
 pub trait HookArgCompat<A> {}
 
 impl<T> HookArgCompat<T> for T {}
-impl<'a, 'b> HookArgCompat<Option<rsgdll_core::conv::PlayerRef<'a>>> for Option<rsgdll_core::conv::EntityRef<'b>> {}
+impl<'a, 'b> HookArgCompat<Option<rsgdll_core::conv::PlayerRef<'a>>>
+    for Option<rsgdll_core::conv::EntityRef<'b>>
+{
+}
 
 macro_rules! numeric_compat {
     ($($t:ty),*) => {$( impl HookArgCompat<f64> for $t {} )*};
@@ -125,7 +151,15 @@ numeric_compat!(f32, i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 macro_rules! value_compat {
     ($($t:ty),*) => {$( impl HookArgCompat<$t> for rsgdll_core::conv::LuaValue {} )*};
 }
-value_compat!(f64, String, bool, rsgdll_core::conv::LuaTable, rsgdll_core::conv::Vector, rsgdll_core::conv::Angle, rsgdll_core::conv::Color);
+value_compat!(
+    f64,
+    String,
+    bool,
+    rsgdll_core::conv::LuaTable,
+    rsgdll_core::conv::Vector,
+    rsgdll_core::conv::Angle,
+    rsgdll_core::conv::Color
+);
 impl<'a> HookArgCompat<Option<rsgdll_core::conv::PlayerRef<'a>>> for rsgdll_core::conv::LuaValue {}
 impl<'a> HookArgCompat<Option<rsgdll_core::conv::EntityRef<'a>>> for rsgdll_core::conv::LuaValue {}
 

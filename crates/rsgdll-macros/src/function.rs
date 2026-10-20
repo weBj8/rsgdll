@@ -4,7 +4,9 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use syn::{FnArg, ItemFn, LitInt, LitStr, ReturnType, Type, spanned::Spanned};
 
-use crate::util::{err, is_lua_ref, last_ident, pascal, realm_guard, realm_tokens, rt, shadows_global, slice_attrs};
+use crate::util::{
+    err, is_lua_ref, last_ident, pascal, realm_guard, realm_tokens, rt, shadows_global, slice_attrs,
+};
 
 #[derive(Default)]
 pub struct FnAttr {
@@ -39,12 +41,22 @@ pub enum RetKind {
 }
 
 pub fn ret_kind(ret: &ReturnType) -> RetKind {
-    let ReturnType::Type(_, ty) = ret else { return RetKind::Value };
-    let Type::Path(p) = &**ty else { return RetKind::Value };
-    let Some(seg) = p.path.segments.last().filter(|s| s.ident == "Result") else { return RetKind::Value };
+    let ReturnType::Type(_, ty) = ret else {
+        return RetKind::Value;
+    };
+    let Type::Path(p) = &**ty else {
+        return RetKind::Value;
+    };
+    let Some(seg) = p.path.segments.last().filter(|s| s.ident == "Result") else {
+        return RetKind::Value;
+    };
     match &seg.arguments {
         syn::PathArguments::AngleBracketed(a) if a.args.len() >= 2 => match a.args.iter().nth(1) {
-            Some(syn::GenericArgument::Type(Type::Path(e))) if e.path.segments.last().is_some_and(|s| s.ident == "Error") => RetKind::RsgdllResult,
+            Some(syn::GenericArgument::Type(Type::Path(e)))
+                if e.path.segments.last().is_some_and(|s| s.ident == "Error") =>
+            {
+                RetKind::RsgdllResult
+            }
             _ => RetKind::DisplayResult,
         },
         _ => RetKind::RsgdllResult,
@@ -74,7 +86,10 @@ pub fn outcome(kind: &RetKind, name: &TokenStream, in_module: bool) -> TokenStre
 
 /// Argument conversion statements + call argument list for a user fn.
 /// `first_lua_arg` = Lua stack position of the first converted param (1 for exports).
-pub fn convert_args<'a>(inputs: impl Iterator<Item = &'a FnArg>, first_lua_arg: i32) -> syn::Result<(Vec<TokenStream>, Vec<TokenStream>)> {
+pub fn convert_args<'a>(
+    inputs: impl Iterator<Item = &'a FnArg>,
+    first_lua_arg: i32,
+) -> syn::Result<(Vec<TokenStream>, Vec<TokenStream>)> {
     let rt = rt();
     let mut stmts = Vec::new();
     let mut call = Vec::new();
@@ -137,7 +152,10 @@ pub fn function(attr: TokenStream, item: ItemFn) -> syn::Result<TokenStream> {
         }
         None => quote!(::core::option::Option::None),
     };
-    let guard = a.realm.as_ref().map(|r| realm_guard(r.span(), &r.value(), &format!("export `{name}`")));
+    let guard = a
+        .realm
+        .as_ref()
+        .map(|r| realm_guard(r.span(), &r.value(), &format!("export `{name}`")));
     let slice = slice_attrs("EXPORTS");
     let tramp = format_ident!("__rsgdll_tramp_{}", ident);
     Ok(quote! {
@@ -189,11 +207,18 @@ pub fn lifecycle(slice: &str, attr: TokenStream, item: ItemFn) -> syn::Result<To
     let n = item.sig.inputs.len();
     let wrapper = match (slice, n) {
         ("PREOPEN" | "POSTOPEN", 1) => quote!(#ident),
-        ("PREOPEN" | "POSTOPEN", 0) => quote!({ fn __w(_: &#rt::Lua) -> #rt::Result<()> { #ident() } __w }),
+        ("PREOPEN" | "POSTOPEN", 0) => {
+            quote!({ fn __w(_: &#rt::Lua) -> #rt::Result<()> { #ident() } __w })
+        }
         ("PRECLOSE", 1) => quote!(#ident),
         ("PRECLOSE", 0) => quote!({ fn __w(_: &#rt::Lua) { #ident() } __w }),
         ("POSTCLOSE", 0) => quote!(#ident),
-        _ => return Err(err(item.sig.span(), "unexpected signature for this lifecycle hook")),
+        _ => {
+            return Err(err(
+                item.sig.span(),
+                "unexpected signature for this lifecycle hook",
+            ));
+        }
     };
     Ok(quote! {
         #item

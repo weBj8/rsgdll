@@ -11,7 +11,10 @@ use crate::util::{err, rt};
 pub fn interface(attr: TokenStream, item: ItemTrait) -> syn::Result<TokenStream> {
     let name: LitStr = syn::parse2(attr)?;
     if item.unsafety.is_none() {
-        return Err(err(item.trait_token.span(), "#[rsgdll::interface] traits must be `unsafe trait` (the slot layout is unchecked)"));
+        return Err(err(
+            item.trait_token.span(),
+            "#[rsgdll::interface] traits must be `unsafe trait` (the slot layout is unchecked)",
+        ));
     }
     let rt = rt();
     let tr = &item.ident;

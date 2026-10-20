@@ -38,13 +38,20 @@ pub struct Color {
 
 impl Default for Color {
     fn default() -> Self {
-        Self { r: 255, g: 255, b: 255, a: 255 }
+        Self {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        }
     }
 }
 
 /// `ILuaBase*` of this state's main thread (only in GMod).
 pub fn luabase(lua: &Lua) -> Option<*mut ILuaBase> {
-    lua.runtime().ext::<Option<usize>>("luabase", || None).map(|p| p as *mut ILuaBase)
+    lua.runtime()
+        .ext::<Option<usize>>("luabase", || None)
+        .map(|p| p as *mut ILuaBase)
 }
 
 #[repr(C)]
@@ -74,7 +81,11 @@ unsafe extern "C-unwind" fn get_vec(_l: *mut lua_State, data: *mut c_void) {
         if let Some(op) = data.cast::<VecOp>().as_mut() {
             let vt = (*op.base).vt();
             op.ty = (vt.get_type)(op.base.cast(), -1);
-            let want = if op.angle { types::ANGLE } else { types::VECTOR };
+            let want = if op.angle {
+                types::ANGLE
+            } else {
+                types::VECTOR
+            };
             if op.ty == want {
                 let p = match op.angle {
                     true => (vt.get_angle)(op.base.cast(), -1),
@@ -94,25 +105,43 @@ fn need_base(lua: &Lua) -> Result<*mut ILuaBase, ConvError> {
 /// Stages a Vector/Angle push targeting `L`, via the main stack when in a coroutine.
 fn stage_vec(s: &mut Stage<'_>, v: [f32; 3], angle: bool) -> Result<(), ConvError> {
     let base = need_base(s.lua)?;
-    let op = Box::new(VecOp { base, v, angle, ty: 0 });
+    let op = Box::new(VecOp {
+        base,
+        v,
+        angle,
+        ty: 0,
+    });
     let p = (&*op as *const VecOp).cast_mut().cast::<c_void>();
     s.keep_box(op);
     let (main, cur) = (s.lua.main_thread(), s.lua.raw());
     match main == cur {
         true => s.op(Op::Raw(push_vec, p), 1),
-        false => s.op(Op::CheckStackOf(main, 1), 0).op(Op::Raw(push_vec, p), 0).op(Op::XMove(main, cur, 1), 1),
+        false => s
+            .op(Op::CheckStackOf(main, 1), 0)
+            .op(Op::Raw(push_vec, p), 0)
+            .op(Op::XMove(main, cur, 1), 1),
     };
     Ok(())
 }
 
 fn read_vec(lua: &Lua, idx: c_int, angle: bool) -> Result<[f32; 3], ConvError> {
     let base = need_base(lua)?;
-    let mut op = VecOp { base, v: [0.0; 3], angle, ty: -1 };
+    let mut op = VecOp {
+        base,
+        v: [0.0; 3],
+        angle,
+        ty: -1,
+    };
     let p = crate::state::light_mut(&mut op).cast::<c_void>();
     let (main, cur) = (lua.main_thread(), lua.raw());
     let ops: Vec<Op> = match main == cur {
         true => vec![Op::PushValue(1), Op::Raw(get_vec, p)],
-        false => vec![Op::CheckStackOf(main, 1), Op::PushValue(1), Op::XMove(cur, main, 1), Op::Raw(get_vec, p)],
+        false => vec![
+            Op::CheckStackOf(main, 1),
+            Op::PushValue(1),
+            Op::XMove(cur, main, 1),
+            Op::Raw(get_vec, p),
+        ],
     };
     let g = lua.guard();
     lua.run(&[idx], &ops).map_err(lua_err)?;
@@ -151,13 +180,18 @@ impl IntoLua for Angle {
 /// Registry ref of GMod's `Color` metatable, fetched once per state (absent outside GMod).
 fn color_meta(lua: &Lua) -> Option<c_int> {
     let rt = lua.runtime().clone();
-    let cell = rt.ext::<std::cell::Cell<Option<Option<c_int>>>>("color_meta", || std::cell::Cell::new(None));
+    let cell = rt
+        .ext::<std::cell::Cell<Option<Option<c_int>>>>("color_meta", || std::cell::Cell::new(None));
     cell.get().unwrap_or_else(|| {
         let g = lua.guard();
         let found = lua
             .global::<super::LuaFunction>("FindMetaTable")
             .ok()
-            .and_then(|f| f.call::<_, Option<super::LuaAny>>(lua, "Color").ok().flatten())
+            .and_then(|f| {
+                f.call::<_, Option<super::LuaAny>>(lua, "Color")
+                    .ok()
+                    .flatten()
+            })
             .map(|a| a.0.try_clone(lua).ok())
             .and_then(|r| r)
             .map(|r| {
@@ -200,7 +234,13 @@ impl IntoLua for Color {
 /// Calls `slot:method()` protected and reads the first result raw.
 fn method_bool(lua: &Lua, idx: c_int, method: &'static core::ffi::CStr) -> Result<bool, ConvError> {
     let g = lua.guard();
-    let ops = [Op::PushValue(1), Op::GetField(-1, method.as_ptr()), Op::Insert(-2), Op::Call(1, 1), Op::Read(-1, 0)];
+    let ops = [
+        Op::PushValue(1),
+        Op::GetField(-1, method.as_ptr()),
+        Op::Insert(-2),
+        Op::Call(1, 1),
+        Op::Read(-1, 0),
+    ];
     let [r] = lua.read_ops::<1>(&[idx], &ops)?;
     drop(g);
     Ok(r.tag == LUA_TBOOLEAN && r.num != 0.0)
@@ -225,7 +265,9 @@ fn entity_slot(lua: &Lua, idx: c_int, player: bool) -> Result<Option<c_int>, Con
             let valid = method_bool(lua, idx, c"IsValid")?;
             match (valid, player) {
                 (false, _) => Ok(None), // NULL entity
-                (true, true) if !method_bool(lua, idx, c"IsPlayer")? => Err(mismatch(lua, idx, what)),
+                (true, true) if !method_bool(lua, idx, c"IsPlayer")? => {
+                    Err(mismatch(lua, idx, what))
+                }
                 (true, _) => Ok(Some(idx)),
             }
         }
@@ -312,15 +354,25 @@ entity_types! {
 }
 
 /// `obj:method(args...)` on the value at `idx`.
-pub fn call_method<A: super::IntoLuaMulti, R: super::FromLuaMulti>(lua: &Lua, idx: c_int, method: &str, args: A) -> Result<R> {
+pub fn call_method<A: super::IntoLuaMulti, R: super::FromLuaMulti>(
+    lua: &Lua,
+    idx: c_int,
+    method: &str,
+    args: A,
+) -> Result<R> {
     let idx = lua.abs(idx);
     let g = lua.guard();
     let name = method.to_owned();
     let mut s = Stage::with_inputs(lua, &[idx]);
-    s.op(Op::PushValue(1), 1).op(Op::PushStr(name.as_ptr(), name.len()), 1).op(Op::GetTable(-2), 0).op(Op::Insert(-2), 0);
+    s.op(Op::PushValue(1), 1)
+        .op(Op::PushStr(name.as_ptr(), name.len()), 1)
+        .op(Op::GetTable(-2), 0)
+        .op(Op::Insert(-2), 0);
     let n = args.into_lua_multi(&mut s)?;
     s.op(Op::Call(n + 1, LUA_MULTRET), -n - 2);
-    let r = s.finish().and_then(|(first, count)| R::from_lua_multi(lua, first, count).map_err(Error::from));
+    let r = s
+        .finish()
+        .and_then(|(first, count)| R::from_lua_multi(lua, first, count).map_err(Error::from));
     drop(g);
     r
 }

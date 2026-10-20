@@ -38,7 +38,14 @@ type Slot<T> = RefCell<Option<T>>;
 fn self_slot<T: UserData>(lua: &Lua, idx: c_int) -> Result<&Slot<T>, ConvError> {
     let meta = metatable::<T>(lua).map_err(lua_err)?;
     let g = lua.guard();
-    let [found, eq] = lua.read_ops::<2>(&[idx], &[Op::GetMetatable(1, 0), Op::PushRef(meta), Op::RawEqual(-1, -2, 1)])?;
+    let [found, eq] = lua.read_ops::<2>(
+        &[idx],
+        &[
+            Op::GetMetatable(1, 0),
+            Op::PushRef(meta),
+            Op::RawEqual(-1, -2, 1),
+        ],
+    )?;
     drop(g);
     let ok = lua.read(idx).tag == LUA_TUSERDATA && found.num != 0.0 && eq.num != 0.0;
     match ok {
@@ -49,7 +56,12 @@ fn self_slot<T: UserData>(lua: &Lua, idx: c_int) -> Result<&Slot<T>, ConvError> 
 }
 
 impl<T: UserData> UserDataMethods<T> {
-    fn add(&mut self, name: &str, path: String, f: impl Fn(&Lua, &Slot<T>, c_int) -> Outcome + 'static) {
+    fn add(
+        &mut self,
+        name: &str,
+        path: String,
+        f: impl Fn(&Lua, &Slot<T>, c_int) -> Outcome + 'static,
+    ) {
         let m: Method = Box::new(move |lua| match self_slot::<T>(lua, 1) {
             Ok(slot) => f(lua, slot, lua.top()),
             Err(e) => bad_argument(lua, &path, 1, &e),
@@ -66,17 +78,19 @@ impl<T: UserData> UserDataMethods<T> {
     {
         let path = format!("{}:{name}", T::NAME);
         let p2 = path.clone();
-        self.add(name, path, move |lua, slot, top| match A::from_args(lua, 2, top - 1) {
-            Err((n, e)) => bad_argument(lua, &p2, n + 1, &e),
-            Ok(args) => {
-                let r = match slot.try_borrow() {
-                    Ok(b) => match b.as_ref() {
-                        Some(v) => f(lua, v, args),
-                        None => Err(crate::anyhow!("{} already collected", T::NAME)),
-                    },
-                    Err(_) => Err(crate::anyhow!("{} is mutably borrowed", T::NAME)),
-                };
-                finish(lua, top, &p2, r)
+        self.add(name, path, move |lua, slot, top| {
+            match A::from_args(lua, 2, top - 1) {
+                Err((n, e)) => bad_argument(lua, &p2, n + 1, &e),
+                Ok(args) => {
+                    let r = match slot.try_borrow() {
+                        Ok(b) => match b.as_ref() {
+                            Some(v) => f(lua, v, args),
+                            None => Err(crate::anyhow!("{} already collected", T::NAME)),
+                        },
+                        Err(_) => Err(crate::anyhow!("{} is mutably borrowed", T::NAME)),
+                    };
+                    finish(lua, top, &p2, r)
+                }
             }
         });
     }
@@ -90,17 +104,19 @@ impl<T: UserData> UserDataMethods<T> {
     {
         let path = format!("{}:{name}", T::NAME);
         let p2 = path.clone();
-        self.add(name, path, move |lua, slot, top| match A::from_args(lua, 2, top - 1) {
-            Err((n, e)) => bad_argument(lua, &p2, n + 1, &e),
-            Ok(args) => {
-                let r = match slot.try_borrow_mut() {
-                    Ok(mut b) => match b.as_mut() {
-                        Some(v) => f(lua, v, args),
-                        None => Err(crate::anyhow!("{} already collected", T::NAME)),
-                    },
-                    Err(_) => Err(crate::anyhow!("{} is already borrowed", T::NAME)),
-                };
-                finish(lua, top, &p2, r)
+        self.add(name, path, move |lua, slot, top| {
+            match A::from_args(lua, 2, top - 1) {
+                Err((n, e)) => bad_argument(lua, &p2, n + 1, &e),
+                Ok(args) => {
+                    let r = match slot.try_borrow_mut() {
+                        Ok(mut b) => match b.as_mut() {
+                            Some(v) => f(lua, v, args),
+                            None => Err(crate::anyhow!("{} already collected", T::NAME)),
+                        },
+                        Err(_) => Err(crate::anyhow!("{} is already borrowed", T::NAME)),
+                    };
+                    finish(lua, top, &p2, r)
+                }
             }
         });
     }
@@ -118,7 +134,11 @@ impl<T: UserData> UserDataMethods<T> {
 fn finish<R: IntoLuaMulti>(lua: &Lua, top: c_int, path: &str, r: crate::Result<R>) -> Outcome {
     match r {
         Ok(v) => returns(lua, top, path, v),
-        Err(e) => Outcome::Err(trampoline::format_error(lua.module_name(), path, &e.lua_message())),
+        Err(e) => Outcome::Err(trampoline::format_error(
+            lua.module_name(),
+            path,
+            &e.lua_message(),
+        )),
     }
 }
 
@@ -149,24 +169,56 @@ pub fn metatable<T: UserData>(lua: &Lua) -> Result<c_int> {
     match METAS.with(|m| m.borrow().get(&key).copied()) {
         Some(r) => Ok(r),
         None => {
-            let mut methods = UserDataMethods::<T> { entries: Vec::new(), _t: std::marker::PhantomData };
+            let mut methods = UserDataMethods::<T> {
+                entries: Vec::new(),
+                _t: std::marker::PhantomData,
+            };
             T::methods(&mut methods);
             let g = lua.guard();
             let full = format!("rsgdll.{}.{}", lua.module_name(), T::NAME);
             let mut out = [Raw::default()];
-            lua.protect(&[], &[Op::CheckStack(8), Op::NewTable(0, 4), Op::PushCClosure(gc::<T>, 0), Op::SetField(-2, c"__gc".as_ptr()), Op::PushStr(full.as_ptr(), full.len()), Op::SetField(-2, c"__name".as_ptr()), Op::NewTable(0, 8)], &mut out)?;
+            lua.protect(
+                &[],
+                &[
+                    Op::CheckStack(8),
+                    Op::NewTable(0, 4),
+                    Op::PushCClosure(gc::<T>, 0),
+                    Op::SetField(-2, c"__gc".as_ptr()),
+                    Op::PushStr(full.as_ptr(), full.len()),
+                    Op::SetField(-2, c"__name".as_ptr()),
+                    Op::NewTable(0, 8),
+                ],
+                &mut out,
+            )?;
             // stack: meta, index
             let (meta, index) = (lua.top() - 1, lua.top());
-            methods.entries.into_iter().try_for_each(|(name, m)| -> Result<()> {
-                push_raw_closure(lua, m)?;
-                let target = if name.starts_with("__") { meta } else { index };
-                let f = lua.top();
-                let r = lua.run(&[target, f], &[Op::PushStr(name.as_ptr(), name.len()), Op::PushValue(2), Op::RawSet(1), Op::Pop(2)]).map(|_| ());
-                // SAFETY: pop the closure copy left in the caller frame.
-                unsafe { (lua.api().lua_settop)(lua.raw(), -2) };
-                r
-            })?;
-            lua.protect(&[meta, index], &[Op::SetField(1, c"__index".as_ptr()), Op::Ref(0)], &mut out)?;
+            methods
+                .entries
+                .into_iter()
+                .try_for_each(|(name, m)| -> Result<()> {
+                    push_raw_closure(lua, m)?;
+                    let target = if name.starts_with("__") { meta } else { index };
+                    let f = lua.top();
+                    let r = lua
+                        .run(
+                            &[target, f],
+                            &[
+                                Op::PushStr(name.as_ptr(), name.len()),
+                                Op::PushValue(2),
+                                Op::RawSet(1),
+                                Op::Pop(2),
+                            ],
+                        )
+                        .map(|_| ());
+                    // SAFETY: pop the closure copy left in the caller frame.
+                    unsafe { (lua.api().lua_settop)(lua.raw(), -2) };
+                    r
+                })?;
+            lua.protect(
+                &[meta, index],
+                &[Op::SetField(1, c"__index".as_ptr()), Op::Ref(0)],
+                &mut out,
+            )?;
             drop(g);
             let id = out[0].num as c_int;
             METAS.with(|m| m.borrow_mut().insert(key, id));
@@ -192,11 +244,24 @@ unsafe extern "C-unwind" fn alloc(l: *mut lua_State, data: *mut c_void) {
 /// Moves `v` into a new userdata with `T`'s metatable (pushed on the stack).
 pub fn push_userdata<T: UserData>(lua: &Lua, v: T) -> Result<()> {
     let meta = metatable::<T>(lua)?;
-    let mut init = Init { size: core::mem::size_of::<Slot<T>>(), ptr: core::ptr::null_mut() };
-    lua.run(&[], &[Op::CheckStack(4), Op::Raw(alloc, crate::state::light_mut(&mut init).cast())])?;
+    let mut init = Init {
+        size: core::mem::size_of::<Slot<T>>(),
+        ptr: core::ptr::null_mut(),
+    };
+    lua.run(
+        &[],
+        &[
+            Op::CheckStack(4),
+            Op::Raw(alloc, crate::state::light_mut(&mut init).cast()),
+        ],
+    )?;
     // SAFETY: fresh userdata block of the right size; Lua aligns to max_align_t (16 on x64).
     unsafe { init.ptr.cast::<Slot<T>>().write(RefCell::new(Some(v))) };
-    lua.run(&[-1], &[Op::PushRef(meta), Op::SetMetatable(1), Op::Remove(1)]).map(|_| ())
+    lua.run(
+        &[-1],
+        &[Op::PushRef(meta), Op::SetMetatable(1), Op::Remove(1)],
+    )
+    .map(|_| ())
 }
 
 /// Owned value moved into Lua as userdata (`IntoLua`).
@@ -226,8 +291,13 @@ impl<T: UserData + Clone> FromLua for LuaUd<T> {
 }
 
 /// Borrow of the userdata's value for the duration of an export call.
-pub fn borrow<'l, T: UserData>(lua: &'l Lua, idx: c_int) -> Result<std::cell::Ref<'l, Option<T>>, ConvError> {
-    self_slot::<T>(lua, idx)?.try_borrow().map_err(|_| ConvError::msg(format!("{} is mutably borrowed", T::NAME)))
+pub fn borrow<'l, T: UserData>(
+    lua: &'l Lua,
+    idx: c_int,
+) -> Result<std::cell::Ref<'l, Option<T>>, ConvError> {
+    self_slot::<T>(lua, idx)?
+        .try_borrow()
+        .map_err(|_| ConvError::msg(format!("{} is mutably borrowed", T::NAME)))
 }
 
 /// Autoref probe used by `#[derive(LuaUserData)]` / `#[rsgdll::methods]`.

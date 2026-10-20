@@ -6,7 +6,12 @@ use std::ffi::CString;
 use crate::gmod::{CreateInterfaceFn, IFACE_OK};
 
 #[cfg(windows)]
-const PATTERNS: &[&str] = &["bin/win64/{}.dll", "garrysmod/bin/{}.dll", "bin/{}.dll", "{}.dll"];
+const PATTERNS: &[&str] = &[
+    "bin/win64/{}.dll",
+    "garrysmod/bin/{}.dll",
+    "bin/{}.dll",
+    "{}.dll",
+];
 
 #[cfg(unix)]
 const PATTERNS: &[&str] = &[
@@ -34,12 +39,16 @@ fn open_loaded(path: &str) -> Option<libloading::Library> {
     use libloading::os::unix::{Library, RTLD_NOW};
     const RTLD_NOLOAD: c_int = 0x4; // glibc; never loads a new copy
     // SAFETY: NOLOAD only returns a handle to an already-initialised library.
-    unsafe { Library::open(Some(path), RTLD_NOW | RTLD_NOLOAD) }.ok().map(Into::into)
+    unsafe { Library::open(Some(path), RTLD_NOW | RTLD_NOLOAD) }
+        .ok()
+        .map(Into::into)
 }
 
 #[cfg(windows)]
 fn open_loaded(path: &str) -> Option<libloading::Library> {
-    libloading::os::windows::Library::open_already_loaded(path).ok().map(Into::into)
+    libloading::os::windows::Library::open_already_loaded(path)
+        .ok()
+        .map(Into::into)
 }
 
 /// Finds an already-loaded engine library by base name (`"lua_shared"`, `"engine"`, ...).
@@ -76,9 +85,17 @@ pub fn pin_self(addr: *const c_void) -> bool {
     unsafe extern "C" {
         fn dladdr(addr: *const c_void, info: *mut DlInfo) -> c_int;
     }
-    let mut info = DlInfo { fname: core::ptr::null(), fbase: core::ptr::null_mut(), sname: core::ptr::null(), saddr: core::ptr::null_mut() };
+    let mut info = DlInfo {
+        fname: core::ptr::null(),
+        fbase: core::ptr::null_mut(),
+        sname: core::ptr::null(),
+        saddr: core::ptr::null_mut(),
+    };
     // SAFETY: dladdr only reads loader tables; fname is a C string owned by the loader.
-    let path = unsafe { (dladdr(addr, &mut info) != 0 && !info.fname.is_null()).then(|| std::ffi::CStr::from_ptr(info.fname)) };
+    let path = unsafe {
+        (dladdr(addr, &mut info) != 0 && !info.fname.is_null())
+            .then(|| std::ffi::CStr::from_ptr(info.fname))
+    };
     path.and_then(|p| p.to_str().ok())
         // SAFETY: re-opening an already loaded image with NODELETE; the handle is leaked on purpose.
         .and_then(|p| unsafe { Library::open(Some(p), RTLD_NOW | RTLD_NODELETE) }.ok())
@@ -96,5 +113,11 @@ pub fn pin_self(addr: *const c_void) -> bool {
     }
     let mut h = core::ptr::null_mut();
     // SAFETY: FROM_ADDRESS treats `addr` as an address inside the module.
-    unsafe { GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, addr, &mut h) != 0 }
+    unsafe {
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+            addr,
+            &mut h,
+        ) != 0
+    }
 }

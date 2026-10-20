@@ -17,13 +17,19 @@ struct Tier0 {
 fn tier0() -> Option<&'static Tier0> {
     static T: OnceLock<Option<Tier0>> = OnceLock::new();
     T.get_or_init(|| {
-        let lib = crate::loader::find_module("tier0").or_else(|| crate::loader::find_module("libtier0"))?;
+        let lib = crate::loader::find_module("tier0")
+            .or_else(|| crate::loader::find_module("libtier0"))?;
         // SAFETY: tier0 exports `Msg`/`Warning` as `void(const char*, ...)` and `Plat_FloatTime` as `double()`.
         unsafe {
             let msg = *lib.get::<MsgFn>(b"Msg\0").ok()?;
             let warning = *lib.get::<MsgFn>(b"Warning\0").ok()?;
             let time = lib.get::<TimeFn>(b"Plat_FloatTime\0").ok().map(|s| *s);
-            Some(Tier0 { _lib: lib, msg, warning, time })
+            Some(Tier0 {
+                _lib: lib,
+                msg,
+                warning,
+                time,
+            })
         }
     })
     .as_ref()
@@ -55,5 +61,10 @@ pub fn float_time() -> f64 {
         .and_then(|t| t.time)
         // SAFETY: no arguments, returns double.
         .map(|f| unsafe { f() })
-        .unwrap_or_else(|| START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64())
+        .unwrap_or_else(|| {
+            START
+                .get_or_init(std::time::Instant::now)
+                .elapsed()
+                .as_secs_f64()
+        })
 }

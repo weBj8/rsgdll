@@ -15,13 +15,26 @@ use crate::refs::LuaRef;
 type Cache = RefCell<HashMap<usize, LuaRef>>;
 
 /// Compiled chunk for `site` in this state, compiling it on first use.
-fn chunk(lua: &Lua, site: &'static u8, src: &str, name: &'static CStr) -> Result<std::rc::Rc<Cache>> {
-    let cache = lua.runtime().ext::<Cache>("chunks", || RefCell::new(HashMap::new()));
+fn chunk(
+    lua: &Lua,
+    site: &'static u8,
+    src: &str,
+    name: &'static CStr,
+) -> Result<std::rc::Rc<Cache>> {
+    let cache = lua
+        .runtime()
+        .ext::<Cache>("chunks", || RefCell::new(HashMap::new()));
     let key = site as *const u8 as usize;
     let cached = cache.borrow().contains_key(&key);
     if !cached {
         let g = lua.guard();
-        lua.run(&[], &[Op::CheckStack(4), Op::Load(src.as_ptr(), src.len(), name.as_ptr())])?;
+        lua.run(
+            &[],
+            &[
+                Op::CheckStack(4),
+                Op::Load(src.as_ptr(), src.len(), name.as_ptr()),
+            ],
+        )?;
         let r = LuaRef::new(lua, -1)?;
         drop(g);
         cache.borrow_mut().insert(key, r);
@@ -31,19 +44,29 @@ fn chunk(lua: &Lua, site: &'static u8, src: &str, name: &'static CStr) -> Result
 
 /// Runs a `lua!` chunk with captures as `...`; Lua errors carry the Lua traceback and
 /// the Rust call site (`at file:line:col`).
-pub fn run<R: FromLuaMulti, A: IntoLuaMulti>(lua: &Lua, site: &'static u8, src: &str, name: &'static CStr, args: A) -> Result<R> {
+pub fn run<R: FromLuaMulti, A: IntoLuaMulti>(
+    lua: &Lua,
+    site: &'static u8,
+    src: &str,
+    name: &'static CStr,
+    args: A,
+) -> Result<R> {
     let at = || format!("lua! at {}", name.to_string_lossy().trim_start_matches('='));
     let cache = chunk(lua, site, src, name).map_err(|e| e.context(at()))?;
     let g = lua.guard();
     let mut s = Stage::new(lua);
     {
         let map = cache.borrow();
-        let f = map.get(&(site as *const u8 as usize)).ok_or_else(|| Error::msg("lua!: chunk cache miss"))?;
+        let f = map
+            .get(&(site as *const u8 as usize))
+            .ok_or_else(|| Error::msg("lua!: chunk cache miss"))?;
         s.reference_id(f)?;
     }
     let n = args.into_lua_multi(&mut s)?;
     s.op(Op::Call(n, LUA_MULTRET), -n - 1);
-    let r = s.finish().and_then(|(first, count)| R::from_lua_multi(lua, first, count).map_err(Error::from));
+    let r = s
+        .finish()
+        .and_then(|(first, count)| R::from_lua_multi(lua, first, count).map_err(Error::from));
     drop(g);
     r.map_err(|e| e.context(at()))
 }
@@ -68,7 +91,13 @@ macro_rules! ref_captures {
         }
     )*};
 }
-ref_captures!(crate::conv::Player, crate::conv::Entity, crate::conv::LuaTable, crate::conv::LuaFunction, crate::conv::LuaAny);
+ref_captures!(
+    crate::conv::Player,
+    crate::conv::Entity,
+    crate::conv::LuaTable,
+    crate::conv::LuaFunction,
+    crate::conv::LuaAny
+);
 
 /// Captures packed by the macro.
 pub struct Captures<T>(pub T);

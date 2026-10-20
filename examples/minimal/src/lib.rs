@@ -23,7 +23,9 @@ fn add(a: i64, b: i64) -> i64 {
 /// Lua: `minimal.Divide(1, 0)` raises a Lua error.
 #[rsgdll::function]
 fn divide(a: f64, b: f64) -> Result<f64> {
-    (b != 0.0).then(|| a / b).ok_or_else(|| rsgdll::anyhow!("division by zero"))
+    (b != 0.0)
+        .then(|| a / b)
+        .ok_or_else(|| rsgdll::anyhow!("division by zero"))
 }
 
 /// Rust -> Lua -> Rust.

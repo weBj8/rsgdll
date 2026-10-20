@@ -4,7 +4,12 @@
 //! nothing with `Drop`, never calls user code, never allocates in Rust and cannot panic, so
 //! a Lua error (longjmp or foreign exception) through it skips nothing. All raising or
 //! allocating Lua API calls made by the safe layer go through here.
-#![deny(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![deny(
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing
+)]
 
 use core::ffi::{c_char, c_int, c_void};
 
@@ -68,7 +73,10 @@ pub enum Op {
     /// `luaL_loadbuffer(ptr, len, chunkname)`; a syntax error is raised as a Lua error.
     Load(*const u8, usize, *const c_char),
     /// Arbitrary raw callback on this frame; must follow the same rules as this module.
-    Raw(unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void), *mut c_void),
+    Raw(
+        unsafe extern "C-unwind" fn(*mut lua_State, *mut c_void),
+        *mut c_void,
+    ),
 }
 
 /// Raw value copied out of a stack slot. Pointers stay valid while the slot is alive.
@@ -83,7 +91,12 @@ pub struct Raw {
 
 impl Default for Raw {
     fn default() -> Self {
-        Self { tag: LUA_TNONE, num: 0.0, ptr: core::ptr::null(), len: 0 }
+        Self {
+            tag: LUA_TNONE,
+            num: 0.0,
+            ptr: core::ptr::null(),
+            len: 0,
+        }
     }
 }
 
@@ -149,34 +162,85 @@ unsafe fn step(a: &LuaApi, l: *mut lua_State, args: &Args, op: Op) {
             }
             Op::Ref(slot) => {
                 let id = (a.luaL_ref)(l, LUA_REGISTRYINDEX);
-                put(args, slot, Raw { num: f64::from(id), ..Raw::default() });
+                put(
+                    args,
+                    slot,
+                    Raw {
+                        num: f64::from(id),
+                        ..Raw::default()
+                    },
+                );
             }
             Op::Unref(r) => (a.luaL_unref)(l, LUA_REGISTRYINDEX, r),
             Op::Read(i, slot) => put(args, slot, read(a, l, i)),
             Op::ToStr(i, slot) => {
                 let mut len = 0usize;
                 let p = (a.lua_tolstring)(l, i, &mut len);
-                put(args, slot, Raw { tag: (a.lua_type)(l, i), ptr: p.cast(), len, num: 0.0 });
+                put(
+                    args,
+                    slot,
+                    Raw {
+                        tag: (a.lua_type)(l, i),
+                        ptr: p.cast(),
+                        len,
+                        num: 0.0,
+                    },
+                );
             }
-            Op::Len(i, slot) => put(args, slot, Raw { len: (a.lua_objlen)(l, i), ..Raw::default() }),
+            Op::Len(i, slot) => put(
+                args,
+                slot,
+                Raw {
+                    len: (a.lua_objlen)(l, i),
+                    ..Raw::default()
+                },
+            ),
             Op::Next(i, slot) => {
                 let more = (a.lua_next)(l, i);
-                put(args, slot, Raw { num: f64::from(more), ..Raw::default() });
+                put(
+                    args,
+                    slot,
+                    Raw {
+                        num: f64::from(more),
+                        ..Raw::default()
+                    },
+                );
             }
             Op::NewUserdata(size, slot) => {
                 let p = (a.lua_newuserdata)(l, size);
-                put(args, slot, Raw { ptr: p, ..Raw::default() });
+                put(
+                    args,
+                    slot,
+                    Raw {
+                        ptr: p,
+                        ..Raw::default()
+                    },
+                );
             }
             Op::SetMetatable(i) => {
                 (a.lua_setmetatable)(l, i);
             }
             Op::GetMetatable(i, slot) => {
                 let found = (a.lua_getmetatable)(l, i);
-                put(args, slot, Raw { num: f64::from(found), ..Raw::default() });
+                put(
+                    args,
+                    slot,
+                    Raw {
+                        num: f64::from(found),
+                        ..Raw::default()
+                    },
+                );
             }
             Op::RawEqual(x, y, slot) => {
                 let eq = (a.lua_rawequal)(l, x, y);
-                put(args, slot, Raw { num: f64::from(eq), ..Raw::default() });
+                put(
+                    args,
+                    slot,
+                    Raw {
+                        num: f64::from(eq),
+                        ..Raw::default()
+                    },
+                );
             }
             Op::Concat(n) => (a.lua_concat)(l, n),
             Op::XMove(from, to, n) => (a.lua_xmove)(from, to, n),
@@ -207,12 +271,33 @@ pub unsafe fn read(a: &LuaApi, l: *mut lua_State, i: c_int) -> Raw {
             LUA_TSTRING => {
                 let mut len = 0usize;
                 let p = (a.lua_tolstring)(l, i, &mut len);
-                Raw { tag, ptr: p.cast(), len, num: 0.0 }
+                Raw {
+                    tag,
+                    ptr: p.cast(),
+                    len,
+                    num: 0.0,
+                }
             }
-            LUA_TNUMBER => Raw { tag, num: (a.lua_tonumber)(l, i), ..Raw::default() },
-            LUA_TBOOLEAN => Raw { tag, num: f64::from((a.lua_toboolean)(l, i)), ..Raw::default() },
-            LUA_TUSERDATA | LUA_TLIGHTUSERDATA => Raw { tag, ptr: (a.lua_touserdata)(l, i), ..Raw::default() },
-            _ => Raw { tag, ptr: (a.lua_topointer)(l, i), ..Raw::default() },
+            LUA_TNUMBER => Raw {
+                tag,
+                num: (a.lua_tonumber)(l, i),
+                ..Raw::default()
+            },
+            LUA_TBOOLEAN => Raw {
+                tag,
+                num: f64::from((a.lua_toboolean)(l, i)),
+                ..Raw::default()
+            },
+            LUA_TUSERDATA | LUA_TLIGHTUSERDATA => Raw {
+                tag,
+                ptr: (a.lua_touserdata)(l, i),
+                ..Raw::default()
+            },
+            _ => Raw {
+                tag,
+                ptr: (a.lua_topointer)(l, i),
+                ..Raw::default()
+            },
         }
     }
 }

@@ -17,7 +17,11 @@ pub struct ConvError {
 
 impl ConvError {
     pub fn new(expected: impl Into<String>, got: impl Into<String>) -> Self {
-        Self { expected: expected.into(), got: got.into(), path: Vec::new() }
+        Self {
+            expected: expected.into(),
+            got: got.into(),
+            path: Vec::new(),
+        }
     }
 
     /// Message without "got" (e.g. `expected sequence, hole at 3`).
@@ -27,7 +31,10 @@ impl ConvError {
 
     /// Prepends an outer path segment.
     pub fn at(self, seg: impl Into<String>) -> Self {
-        Self { path: std::iter::once(seg.into()).chain(self.path).collect(), ..self }
+        Self {
+            path: std::iter::once(seg.into()).chain(self.path).collect(),
+            ..self
+        }
     }
 }
 
@@ -47,7 +54,10 @@ impl fmt::Display for ConvError {
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum ErrorKind {
-    Lua { message: String, lua_traceback: Option<String> },
+    Lua {
+        message: String,
+        lua_traceback: Option<String>,
+    },
     StateClosed,
     Conversion(ConvError),
     Other(Box<dyn std::error::Error + Send + Sync>),
@@ -56,7 +66,10 @@ pub enum ErrorKind {
 impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ErrorKind::Lua { message, lua_traceback: Some(tb) } => write!(f, "{message}\n{tb}"),
+            ErrorKind::Lua {
+                message,
+                lua_traceback: Some(tb),
+            } => write!(f, "{message}\n{tb}"),
             ErrorKind::Lua { message, .. } => f.write_str(message),
             ErrorKind::StateClosed => f.write_str("Lua state closed"),
             ErrorKind::Conversion(c) => c.fmt(f),
@@ -93,7 +106,11 @@ fn capture() -> Option<Box<Backtrace>> {
 
 impl Error {
     pub fn new(kind: ErrorKind) -> Self {
-        Self { kind, context: Vec::new(), backtrace: capture() }
+        Self {
+            kind,
+            context: Vec::new(),
+            backtrace: capture(),
+        }
     }
 
     pub fn msg(text: impl fmt::Display) -> Self {
@@ -101,12 +118,19 @@ impl Error {
     }
 
     pub fn lua(message: impl Into<String>, lua_traceback: Option<String>) -> Self {
-        Self::new(ErrorKind::Lua { message: message.into(), lua_traceback })
+        Self::new(ErrorKind::Lua {
+            message: message.into(),
+            lua_traceback,
+        })
     }
 
     /// Error from already formatted text (no backtrace is added).
     pub fn preformatted(text: String) -> Self {
-        Self { kind: ErrorKind::Other(text.into()), context: Vec::new(), backtrace: None }
+        Self {
+            kind: ErrorKind::Other(text.into()),
+            context: Vec::new(),
+            backtrace: None,
+        }
     }
 
     pub fn state_closed() -> Self {
@@ -118,7 +142,9 @@ impl Error {
     }
 
     pub fn backtrace(&self) -> Option<&Backtrace> {
-        self.backtrace.as_deref().filter(|b| b.status() == BacktraceStatus::Captured)
+        self.backtrace
+            .as_deref()
+            .filter(|b| b.status() == BacktraceStatus::Captured)
     }
 
     pub fn context(mut self, c: impl fmt::Display) -> Self {
@@ -151,7 +177,11 @@ impl Error {
     /// Full message as Lua sees it: message + trimmed `rust stack traceback` (spec §7.2).
     pub fn lua_message(&self) -> String {
         match self.backtrace() {
-            Some(bt) => format!("{}\nrust stack traceback:\n{}", self.message(), trim_backtrace(&bt.to_string())),
+            Some(bt) => format!(
+                "{}\nrust stack traceback:\n{}",
+                self.message(),
+                trim_backtrace(&bt.to_string())
+            ),
             None => self.message(),
         }
     }
@@ -159,22 +189,54 @@ impl Error {
 
 /// Drops std/rsgdll/runtime frames; keeps user frames with their `at file:line` lines.
 pub fn trim_backtrace(bt: &str) -> String {
-    const SKIP: &[&str] = &["std::", "core::", "alloc::", "rsgdll", "__rust", "backtrace::", "<unknown>", "__libc", "_start", "clone3", "start_thread"];
-    let frames: Vec<Vec<&str>> = bt.lines().fold(Vec::new(), |mut acc: Vec<Vec<&str>>, line| {
-        let t = line.trim_start();
-        match t.split_once(": ").filter(|(n, _)| n.chars().all(|c| c.is_ascii_digit())) {
-            Some(_) => acc.push(vec![t]),
-            None => if let Some(f) = acc.last_mut() { f.push(t) },
-        }
-        acc
-    });
+    const SKIP: &[&str] = &[
+        "std::",
+        "core::",
+        "alloc::",
+        "rsgdll",
+        "__rust",
+        "backtrace::",
+        "<unknown>",
+        "__libc",
+        "_start",
+        "clone3",
+        "start_thread",
+    ];
+    let frames: Vec<Vec<&str>> = bt
+        .lines()
+        .fold(Vec::new(), |mut acc: Vec<Vec<&str>>, line| {
+            let t = line.trim_start();
+            match t
+                .split_once(": ")
+                .filter(|(n, _)| n.chars().all(|c| c.is_ascii_digit()))
+            {
+                Some(_) => acc.push(vec![t]),
+                None => {
+                    if let Some(f) = acc.last_mut() {
+                        f.push(t)
+                    }
+                }
+            }
+            acc
+        });
     frames
         .iter()
-        .filter(|f| f.first().and_then(|h| h.split_once(": ")).is_some_and(|(_, name)| !SKIP.iter().any(|s| name.contains(s))))
+        .filter(|f| {
+            f.first()
+                .and_then(|h| h.split_once(": "))
+                .is_some_and(|(_, name)| !SKIP.iter().any(|s| name.contains(s)))
+        })
         .enumerate()
         .map(|(i, f)| {
-            let name = f.first().and_then(|h| h.split_once(": ")).map_or("", |(_, n)| n);
-            let at = f.iter().skip(1).map(|l| format!(" {l}")).collect::<String>();
+            let name = f
+                .first()
+                .and_then(|h| h.split_once(": "))
+                .map_or("", |(_, n)| n);
+            let at = f
+                .iter()
+                .skip(1)
+                .map(|l| format!(" {l}"))
+                .collect::<String>();
             format!("    {i}: {name}{at}")
         })
         .collect::<Vec<_>>()
@@ -246,7 +308,10 @@ mod tests {
         assert_eq!(e.message(), "failed to read config.json\ncaused by: nope");
         assert!(matches!(e.kind(), ErrorKind::Other(_)));
         let conv: Error = ConvError::new("number", "string").at("Retries").into();
-        assert_eq!(conv.to_string(), "field 'Retries': expected number, got string");
+        assert_eq!(
+            conv.to_string(),
+            "field 'Retries': expected number, got string"
+        );
     }
 
     #[test]
@@ -260,6 +325,9 @@ mod tests {
     #[test]
     fn trims_frames() {
         let bt = "   0: std::backtrace::Backtrace::create\n             at /rustc/x\n   1: mymod::load_config\n             at src/lib.rs:42:5\n   2: core::ops::function::FnOnce::call_once";
-        assert_eq!(trim_backtrace(bt), "    0: mymod::load_config at src/lib.rs:42:5");
+        assert_eq!(
+            trim_backtrace(bt),
+            "    0: mymod::load_config at src/lib.rs:42:5"
+        );
     }
 }

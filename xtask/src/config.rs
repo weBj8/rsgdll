@@ -35,5 +35,7 @@ pub fn srcds_dir() -> Result<PathBuf, String> {
 
 #[allow(dead_code)] // used by `install --realm cl`
 pub fn gmod_client_dir() -> Result<PathBuf, String> {
-    lookup("RSGDLL_GMOD_CLIENT_DIR", "gmod_client_dir", |f| f.gmod_client_dir)
+    lookup("RSGDLL_GMOD_CLIENT_DIR", "gmod_client_dir", |f| {
+        f.gmod_client_dir
+    })
 }

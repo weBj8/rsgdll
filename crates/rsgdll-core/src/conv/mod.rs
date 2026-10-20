@@ -61,13 +61,25 @@ pub struct Stage<'l> {
 
 impl<'l> Stage<'l> {
     pub fn new(lua: &'l Lua) -> Self {
-        Self { lua, ops: Vec::new(), bufs: Vec::new(), extra: Vec::new(), keep: Vec::new(), depth: 0, max: 0, inputs: Vec::new() }
+        Self {
+            lua,
+            ops: Vec::new(),
+            bufs: Vec::new(),
+            extra: Vec::new(),
+            keep: Vec::new(),
+            depth: 0,
+            max: 0,
+            inputs: Vec::new(),
+        }
     }
 
     /// Stage whose ops may refer to caller slots `inputs` as frame indices `1..=n`
     /// (ops run in their own frame; absolute caller indices are not visible there).
     pub fn with_inputs(lua: &'l Lua, inputs: &[c_int]) -> Self {
-        Self { inputs: inputs.to_vec(), ..Self::new(lua) }
+        Self {
+            inputs: inputs.to_vec(),
+            ..Self::new(lua)
+        }
     }
 
     /// Records `op` with its net stack effect.
@@ -104,7 +116,8 @@ impl<'l> Stage<'l> {
 
     /// Pushes a ref's value; the ref is kept until the stage runs.
     pub fn reference(&mut self, r: LuaRef) -> Result<&mut Self, ConvError> {
-        r.check(self.lua).map_err(|_| ConvError::msg("value belongs to a closed Lua state"))?;
+        r.check(self.lua)
+            .map_err(|_| ConvError::msg("value belongs to a closed Lua state"))?;
         let op = Op::PushRef(r.id());
         self.keep.push(r);
         Ok(self.op(op, 1))
@@ -112,12 +125,19 @@ impl<'l> Stage<'l> {
 
     /// Borrowed ref push (the ref must outlive `finish`).
     pub fn reference_id(&mut self, r: &LuaRef) -> Result<&mut Self, ConvError> {
-        r.check(self.lua).map_err(|_| ConvError::msg("value belongs to a closed Lua state"))?;
+        r.check(self.lua)
+            .map_err(|_| ConvError::msg("value belongs to a closed Lua state"))?;
         Ok(self.op(Op::PushRef(r.id()), 1))
     }
 
     pub fn table(&mut self, narr: usize, nrec: usize) -> &mut Self {
-        self.op(Op::NewTable(narr.min(i32::MAX as usize) as c_int, nrec.min(i32::MAX as usize) as c_int), 1)
+        self.op(
+            Op::NewTable(
+                narr.min(i32::MAX as usize) as c_int,
+                nrec.min(i32::MAX as usize) as c_int,
+            ),
+            1,
+        )
     }
 
     /// Pops key and value into the table below them.
@@ -160,7 +180,9 @@ pub fn type_name(lua: &Lua, idx: c_int) -> String {
         let t = (a.lua_type)(lua.raw(), idx);
         match t {
             LUA_TNONE => "no value".to_owned(),
-            t => core::ffi::CStr::from_ptr((a.lua_typename)(lua.raw(), t)).to_string_lossy().into_owned(),
+            t => core::ffi::CStr::from_ptr((a.lua_typename)(lua.raw(), t))
+                .to_string_lossy()
+                .into_owned(),
         }
     }
 }
@@ -179,10 +201,18 @@ pub fn lua_err(e: Error) -> ConvError {
 
 impl Lua {
     /// Runs read ops with `inputs` and copies `N` raw outputs. Results stay on the stack.
-    pub fn read_ops<const N: usize>(&self, inputs: &[c_int], ops: &[Op]) -> Result<[Raw; N], ConvError> {
+    pub fn read_ops<const N: usize>(
+        &self,
+        inputs: &[c_int],
+        ops: &[Op],
+    ) -> Result<[Raw; N], ConvError> {
         let mut out = [Raw::default(); N];
-        let all: Vec<Op> = std::iter::once(Op::CheckStack(8)).chain(ops.iter().copied()).collect();
-        self.protect(inputs, &all, &mut out).map(|_| out).map_err(lua_err)
+        let all: Vec<Op> = std::iter::once(Op::CheckStack(8))
+            .chain(ops.iter().copied())
+            .collect();
+        self.protect(inputs, &all, &mut out)
+            .map(|_| out)
+            .map_err(lua_err)
     }
 
     /// Converts the value at `idx`.
@@ -201,7 +231,8 @@ impl Lua {
     pub fn raw_bytes(&self, idx: c_int) -> Option<&[u8]> {
         let r = self.read(idx);
         // SAFETY: Lua strings are immutable while the slot is alive; callers keep it alive.
-        (r.tag == LUA_TSTRING).then(|| unsafe { core::slice::from_raw_parts(r.ptr.cast::<u8>(), r.len) })
+        (r.tag == LUA_TSTRING)
+            .then(|| unsafe { core::slice::from_raw_parts(r.ptr.cast::<u8>(), r.len) })
     }
 }
 

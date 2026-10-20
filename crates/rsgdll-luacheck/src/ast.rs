@@ -56,9 +56,17 @@ pub type Block = Vec<Stat>;
 impl Expr {
     pub fn span(&self) -> Option<Span> {
         match self {
-            Expr::Capture(_, s) | Expr::Name(_, s) | Expr::Index(_, _, s) | Expr::Field(_, _, s) | Expr::Call(_, _, s) | Expr::Method(_, _, _, s) => Some(*s),
+            Expr::Capture(_, s)
+            | Expr::Name(_, s)
+            | Expr::Index(_, _, s)
+            | Expr::Field(_, _, s)
+            | Expr::Call(_, _, s)
+            | Expr::Method(_, _, _, s) => Some(*s),
             Expr::Paren(e) | Expr::Un(_, e) => e.span(),
-            Expr::Bin(a, _, b) => a.span().zip(b.span()).map(|(a, b)| Span { start: a.start, end: b.end }),
+            Expr::Bin(a, _, b) => a.span().zip(b.span()).map(|(a, b)| Span {
+                start: a.start,
+                end: b.end,
+            }),
             _ => None,
         }
     }

@@ -81,7 +81,10 @@ where
     spawn_future(lua, async move {
         if let Err(e) = fut.await {
             if let Ok(l) = log_with.lua() {
-                log_error(l, &format!("[{}] async task: {}", l.module_name(), e.lua_message()));
+                log_error(
+                    l,
+                    &format!("[{}] async task: {}", l.module_name(), e.lua_message()),
+                );
             }
         }
     });
@@ -102,19 +105,28 @@ pub fn pump(lua: &Lua) {
     expired.into_iter().for_each(Waker::wake);
     CURRENT.with(|c| *c.borrow_mut() = Some(ex.in_flight.clone()));
     // The budget is checked between polls; a single long poll is not preempted.
-    std::iter::from_fn(|| (start.elapsed() < ex.budget.get()).then(|| ex.queue.lock().ok().and_then(|mut q| q.pop_front())).flatten())
-        .for_each(|r| {
-            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| r.run())).is_err() {
-                log_error(lua, &format!("[{}] async task panicked", lua.module_name()));
-            }
-        });
+    std::iter::from_fn(|| {
+        (start.elapsed() < ex.budget.get())
+            .then(|| ex.queue.lock().ok().and_then(|mut q| q.pop_front()))
+            .flatten()
+    })
+    .for_each(|r| {
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| r.run())).is_err() {
+            log_error(lua, &format!("[{}] async task panicked", lua.module_name()));
+        }
+    });
     CURRENT.with(|c| *c.borrow_mut() = None);
     ex.tasks.borrow_mut().retain(|t| !t.is_finished());
 }
 
 /// Number of live (unfinished) tasks.
 pub fn pending(lua: &Lua) -> usize {
-    get(lua).tasks.borrow().iter().filter(|t| !t.is_finished()).count()
+    get(lua)
+        .tasks
+        .borrow()
+        .iter()
+        .filter(|t| !t.is_finished())
+        .count()
 }
 
 /// Stops the executor: fails pending handle calls, cancels tasks, waits for workers.
@@ -132,7 +144,10 @@ pub fn stop(lua: &Lua, worker_timeout: Duration) {
     }
     match ex.in_flight.load(Ordering::Acquire) {
         0 => {}
-        n => rsgdll_sys::tier0::warning(&format!("[{}] {n} worker task(s) still running at close; detached\n", lua.module_name())),
+        n => rsgdll_sys::tier0::warning(&format!(
+            "[{}] {n} worker task(s) still running at close; detached\n",
+            lua.module_name()
+        )),
     }
 }
 
@@ -142,7 +157,9 @@ pub struct Sleep {
 }
 
 pub fn sleep(d: Duration) -> Sleep {
-    Sleep { deadline: Instant::now() + d }
+    Sleep {
+        deadline: Instant::now() + d,
+    }
 }
 
 impl Future for Sleep {

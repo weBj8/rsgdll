@@ -23,8 +23,14 @@ fn primitives() {
     assert_eq!(roundtrip(&lua, "héllo".to_owned()), "héllo");
     assert_eq!(roundtrip(&lua, Some(3u8)), Some(3));
     assert_eq!(roundtrip::<Option<u8>>(&lua, None), None);
-    assert_eq!(roundtrip(&lua, AsString(76561198000000000u64) as SteamId64).0, 76561198000000000);
-    assert_eq!(roundtrip(&lua, LuaBytes(vec![0, 255, 1])).0, vec![0, 255, 1]);
+    assert_eq!(
+        roundtrip(&lua, AsString(76561198000000000u64) as SteamId64).0,
+        76561198000000000
+    );
+    assert_eq!(
+        roundtrip(&lua, LuaBytes(vec![0, 255, 1])).0,
+        vec![0, 255, 1]
+    );
 }
 
 #[test]
@@ -66,14 +72,20 @@ fn tables() {
     let e = lua.global::<Vec<i32>>("holes").unwrap_err();
     assert!(e.to_string().contains("hole at 2"), "{e}");
     common::exec(l, "nested = { a = { 1, 'x' } }").unwrap();
-    let e = lua.global::<HashMap<String, Vec<i32>>>("nested").unwrap_err();
+    let e = lua
+        .global::<HashMap<String, Vec<i32>>>("nested")
+        .unwrap_err();
     assert!(e.to_string().contains("field 'a.2'"), "{e}");
 }
 
 #[test]
 fn metamethods_are_honoured() {
     let (l, lua) = common::state();
-    common::exec(l, "proxy = setmetatable({}, { __index = function(_, k) return k * 10 end })").unwrap();
+    common::exec(
+        l,
+        "proxy = setmetatable({}, { __index = function(_, k) return k * 10 end })",
+    )
+    .unwrap();
     let t: LuaTable = lua.global("proxy").unwrap();
     assert_eq!(t.get::<_, i32>(&lua, 4).unwrap(), 40);
 }
@@ -90,9 +102,15 @@ fn functions_and_closures() {
     assert_eq!(common::exec(l, "return double(21)").unwrap(), "42");
     let e = common::exec(l, "return double('x')").unwrap_err();
     assert!(e.contains("bad argument #1"), "{e}");
-    let failing = lua.create_function(|_, ()| -> Result<()> { Err(anyhow!("nope")) }).unwrap();
+    let failing = lua
+        .create_function(|_, ()| -> Result<()> { Err(anyhow!("nope")) })
+        .unwrap();
     lua.set_global("failing", failing).unwrap();
-    assert!(common::exec(l, "return failing()").unwrap_err().contains("nope"));
+    assert!(
+        common::exec(l, "return failing()")
+            .unwrap_err()
+            .contains("nope")
+    );
 }
 
 #[test]
@@ -107,7 +125,10 @@ fn nested_globals() {
 fn lua_value() {
     let (l, lua) = common::state();
     common::exec(l, "v = { 1 }").unwrap();
-    assert!(matches!(lua.global::<LuaValue>("v").unwrap(), LuaValue::Table(_)));
+    assert!(matches!(
+        lua.global::<LuaValue>("v").unwrap(),
+        LuaValue::Table(_)
+    ));
     assert!(lua.global::<LuaValue>("nothing").unwrap().is_nil());
 }
 
@@ -137,10 +158,21 @@ impl UserData for Counter {
 fn userdata_methods_and_gc() {
     let (l, lua) = common::state();
     let dropped = std::rc::Rc::new(std::cell::Cell::new(false));
-    lua.set_global("c", LuaUd(Counter { n: 0, dropped: dropped.clone() })).unwrap();
+    lua.set_global(
+        "c",
+        LuaUd(Counter {
+            n: 0,
+            dropped: dropped.clone(),
+        }),
+    )
+    .unwrap();
     assert_eq!(common::exec(l, "c:Inc() return c:Inc(5)").unwrap(), "6");
     assert_eq!(common::exec(l, "return tostring(c)").unwrap(), "Counter(6)");
-    assert!(common::exec(l, "return c.Inc({})").unwrap_err().contains("bad argument #1"));
+    assert!(
+        common::exec(l, "return c.Inc({})")
+            .unwrap_err()
+            .contains("bad argument #1")
+    );
     common::exec(l, "c = nil collectgarbage() collectgarbage()").unwrap();
     assert!(dropped.get());
 }
@@ -150,11 +182,24 @@ fn userdata_methods_and_gc() {
 fn serde_roundtrip() {
     use rsgdll_core::conv::serde::LuaSerde;
     #[derive(::serde::Serialize, ::serde::Deserialize, Debug, PartialEq, Clone)]
-    enum Kind { A, B { n: u32 } }
+    enum Kind {
+        A,
+        B { n: u32 },
+    }
     #[derive(::serde::Serialize, ::serde::Deserialize, Debug, PartialEq, Clone)]
-    struct Cfg { name: String, tags: Vec<String>, kind: Kind, opt: Option<i32> }
+    struct Cfg {
+        name: String,
+        tags: Vec<String>,
+        kind: Kind,
+        opt: Option<i32>,
+    }
     let (_l, lua) = common::state();
-    let v = Cfg { name: "x".into(), tags: vec!["a".into()], kind: Kind::B { n: 3 }, opt: None };
+    let v = Cfg {
+        name: "x".into(),
+        tags: vec!["a".into()],
+        kind: Kind::B { n: 3 },
+        opt: None,
+    };
     assert_eq!(roundtrip(&lua, LuaSerde(v.clone())).0, v);
     assert_eq!(roundtrip(&lua, LuaSerde(Kind::A)).0, Kind::A);
 }

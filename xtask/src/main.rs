@@ -27,12 +27,17 @@ fn usage() -> String {
 /// Default probe inputs: every `lua_shared` under the configured srcds dir.
 fn default_probe_files() -> Result<Vec<PathBuf>, String> {
     let dir = config::srcds_dir()?;
-    Ok(["bin/linux64/lua_shared.so", "bin/lua_shared.so", "garrysmod/bin/lua_shared_srv.so",
-        "bin/win64/lua_shared.dll", "bin/lua_shared.dll"]
-        .iter()
-        .map(|p| dir.join(p))
-        .filter(|p| p.exists())
-        .collect())
+    Ok([
+        "bin/linux64/lua_shared.so",
+        "bin/lua_shared.so",
+        "garrysmod/bin/lua_shared_srv.so",
+        "bin/win64/lua_shared.dll",
+        "bin/lua_shared.dll",
+    ]
+    .iter()
+    .map(|p| dir.join(p))
+    .filter(|p| p.exists())
+    .collect())
 }
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -55,13 +60,19 @@ fn run(args: &[String]) -> Result<(), String> {
             };
             let out = root.join("crates/rsgdll-apidb/src");
             apidb::generate(&dir)
-                .and_then(|data| std::fs::write(out.join("data.txt"), data).map_err(|e| e.to_string()))
-                .and_then(|()| std::fs::write(out.join("commit.txt"), apidb::COMMIT).map_err(|e| e.to_string()))
+                .and_then(|data| {
+                    std::fs::write(out.join("data.txt"), data).map_err(|e| e.to_string())
+                })
+                .and_then(|()| {
+                    std::fs::write(out.join("commit.txt"), apidb::COMMIT).map_err(|e| e.to_string())
+                })
                 .and_then(|()| {
                     // Re-parse the fresh data so hook markers match it exactly.
-                    let data = std::fs::read_to_string(out.join("data.txt")).map_err(|e| e.to_string())?;
+                    let data =
+                        std::fs::read_to_string(out.join("data.txt")).map_err(|e| e.to_string())?;
                     let hooks_file = root.join("crates/rsgdll-gmod/src/hooks_gen.rs");
-                    std::fs::write(&hooks_file, hooks::generate(&rsgdll_apidb::parse(&data))).map_err(|e| e.to_string())
+                    std::fs::write(&hooks_file, hooks::generate(&rsgdll_apidb::parse(&data)))
+                        .map_err(|e| e.to_string())
                 })
                 .map(|()| println!("wrote {} and hooks_gen.rs", out.join("data.txt").display()))
         }
@@ -77,9 +88,16 @@ fn run(args: &[String]) -> Result<(), String> {
                 .map(|()| println!("wrote {}", out.display()))
         }
         Some((cmd, rest)) if cmd == "build" => {
-            let opt = |k: &str| rest.iter().position(|a| a == k).and_then(|i| rest.get(i + 1)).map(String::as_str);
-            let platforms = build::Platform::parse(opt("--target").unwrap_or("linux64")).ok_or("bad --target")?;
-            let realm = build::RealmArg::parse(opt("--realm").unwrap_or("sv")).ok_or("bad --realm")?;
+            let opt = |k: &str| {
+                rest.iter()
+                    .position(|a| a == k)
+                    .and_then(|i| rest.get(i + 1))
+                    .map(String::as_str)
+            };
+            let platforms = build::Platform::parse(opt("--target").unwrap_or("linux64"))
+                .ok_or("bad --target")?;
+            let realm =
+                build::RealmArg::parse(opt("--realm").unwrap_or("sv")).ok_or("bad --realm")?;
             let krate = opt("-p").ok_or("missing -p <crate>")?.to_owned();
             let module = opt("--name").unwrap_or(&krate).to_owned();
             platforms.iter().try_for_each(|p| {
@@ -97,9 +115,18 @@ fn run(args: &[String]) -> Result<(), String> {
             })
         }
         Some((cmd, rest)) if cmd == "install" => {
-            let realm = rest.iter().position(|a| a == "--realm").and_then(|i| rest.get(i + 1)).and_then(|r| build::RealmArg::parse(r)).ok_or("missing --realm sv|cl")?;
-            let file = rest.last().filter(|f| !f.starts_with("--") && *f != "sv" && *f != "cl").ok_or("missing <file>")?;
-            build::install(std::path::Path::new(file), realm).map(|d| println!("installed {}", d.display()))
+            let realm = rest
+                .iter()
+                .position(|a| a == "--realm")
+                .and_then(|i| rest.get(i + 1))
+                .and_then(|r| build::RealmArg::parse(r))
+                .ok_or("missing --realm sv|cl")?;
+            let file = rest
+                .last()
+                .filter(|f| !f.starts_with("--") && *f != "sv" && *f != "cl")
+                .ok_or("missing <file>")?;
+            build::install(std::path::Path::new(file), realm)
+                .map(|d| println!("installed {}", d.display()))
         }
         Some((cmd, _)) if cmd == "probe-threadedcall" => srcds::probe_threadedcall(),
         Some((cmd, rest)) if cmd == "test-srcds" => srcds::test(rest.iter().any(|a| a == "--keep")),

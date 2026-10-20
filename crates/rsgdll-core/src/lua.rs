@@ -61,14 +61,19 @@ unsafe fn read_error(a: &LuaApi, l: *mut lua_State, status: c_int) -> Error {
             LUA_TSTRING => {
                 let mut len = 0usize;
                 let p = (a.lua_tolstring)(l, -1, &mut len);
-                String::from_utf8_lossy(core::slice::from_raw_parts(p.cast::<u8>(), len)).into_owned()
+                String::from_utf8_lossy(core::slice::from_raw_parts(p.cast::<u8>(), len))
+                    .into_owned()
             }
             t => {
                 let name = CStr::from_ptr((a.lua_typename)(l, t)).to_string_lossy();
                 format!("(error object is a {name} value)")
             }
         };
-        let msg = if status == LUA_ERRMEM { format!("out of memory: {msg}") } else { msg };
+        let msg = if status == LUA_ERRMEM {
+            format!("out of memory: {msg}")
+        } else {
+            msg
+        };
         let (message, tb) = split_traceback(&msg);
         Error::lua(message, tb)
     }
@@ -80,11 +85,21 @@ impl Lua {
     /// # Safety
     /// `l` must be a valid `lua_State` used on its owning thread.
     pub unsafe fn from_raw(l: *mut lua_State) -> Result<Self> {
-        state::get(l).map(|rt| Self { l, rt, _not_send: PhantomData }).ok_or_else(Error::state_closed)
+        state::get(l)
+            .map(|rt| Self {
+                l,
+                rt,
+                _not_send: PhantomData,
+            })
+            .ok_or_else(Error::state_closed)
     }
 
     pub(crate) fn with_runtime(l: *mut lua_State, rt: Rc<Runtime>) -> Self {
-        Self { l, rt, _not_send: PhantomData }
+        Self {
+            l,
+            rt,
+            _not_send: PhantomData,
+        }
     }
 
     /// Opt-in raw access (spec §1). Everything done with it is the caller's responsibility.
@@ -123,7 +138,10 @@ impl Lua {
     }
 
     pub fn guard(&self) -> StackGuard {
-        StackGuard { l: self.l, top: self.top() }
+        StackGuard {
+            l: self.l,
+            top: self.top(),
+        }
     }
 
     /// Absolute stack index (pseudo-indices unchanged).
@@ -143,7 +161,10 @@ impl Lua {
     /// Runs `ops` in the fixed interpreter under `lua_pcall`. `inputs` are copied in as
     /// frame slots `1..=n`. Returns `(first, count)` of the results now on the stack.
     pub fn protect(&self, inputs: &[c_int], ops: &[Op], out: &mut [Raw]) -> Result<(c_int, c_int)> {
-        assert!(inputs.len() <= MAX_INPUTS, "rsgdll: too many protected inputs");
+        assert!(
+            inputs.len() <= MAX_INPUTS,
+            "rsgdll: too many protected inputs"
+        );
         let a = self.api();
         let abs: Vec<c_int> = inputs.iter().map(|i| self.abs(*i)).collect();
         let base = self.top();
@@ -206,10 +227,20 @@ impl Lua {
 /// `l` must be a valid main-thread `lua_State` owned by the calling thread.
 pub unsafe fn open_state(l: *mut lua_State, module: &'static str) -> Result<Lua> {
     let a = rsgdll_sys::api();
-    let oom: &'static str = Box::leak(format!("[{module}] error (message allocation failed)").into_boxed_str());
-    let mut boot = Boot { oom_text: (oom.as_ptr() as usize, oom.len()), ..Boot::default() };
+    let oom: &'static str =
+        Box::leak(format!("[{module}] error (message allocation failed)").into_boxed_str());
+    let mut boot = Boot {
+        oom_text: (oom.as_ptr() as usize, oom.len()),
+        ..Boot::default()
+    };
     // SAFETY: bootstrap only creates closures/strings and refs them; errors are caught by cpcall.
-    let status = unsafe { (a.lua_cpcall)(l, crate::protected::bootstrap, (&mut boot as *mut Boot).cast::<c_void>()) };
+    let status = unsafe {
+        (a.lua_cpcall)(
+            l,
+            crate::protected::bootstrap,
+            (&mut boot as *mut Boot).cast::<c_void>(),
+        )
+    };
     match status {
         LUA_OK => Ok(Lua::with_runtime(l, state::insert(l, module, boot))),
         s => {
@@ -224,7 +255,11 @@ pub unsafe fn open_state(l: *mut lua_State, module: &'static str) -> Result<Lua>
 /// Unrefs the bootstrap refs and removes the runtime entry (spec §8.1 close order, last step).
 pub fn close_state(lua: Lua) {
     let b = &lua.rt.boot;
-    let ops = [Op::Unref(b.handler), Op::Unref(b.oom_message), Op::Unref(b.interpreter)];
+    let ops = [
+        Op::Unref(b.handler),
+        Op::Unref(b.oom_message),
+        Op::Unref(b.interpreter),
+    ];
     let g = lua.guard();
     // shortcut: unref failure (OOM) only leaks three registry slots of a closing state.
     let _ = lua.run(&[], &ops);

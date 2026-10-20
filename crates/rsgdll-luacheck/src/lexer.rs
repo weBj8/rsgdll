@@ -35,11 +35,37 @@ const KEYWORDS: &[&str] = &[
 
 /// Longest symbols first.
 const SYMBOLS: &[(&str, &str)] = &[
-    ("...", "..."), ("==", "=="), ("~=", "~="), ("!=", "~="), ("<=", "<="), (">=", ">="),
-    ("&&", "and"), ("||", "or"), ("..", ".."), ("::", "::"),
-    ("+", "+"), ("-", "-"), ("*", "*"), ("/", "/"), ("%", "%"), ("^", "^"), ("#", "#"),
-    ("<", "<"), (">", ">"), ("=", "="), ("(", "("), (")", ")"), ("{", "{"), ("}", "}"),
-    ("[", "["), ("]", "]"), (";", ";"), (":", ":"), (",", ","), (".", "."), ("!", "not"),
+    ("...", "..."),
+    ("==", "=="),
+    ("~=", "~="),
+    ("!=", "~="),
+    ("<=", "<="),
+    (">=", ">="),
+    ("&&", "and"),
+    ("||", "or"),
+    ("..", ".."),
+    ("::", "::"),
+    ("+", "+"),
+    ("-", "-"),
+    ("*", "*"),
+    ("/", "/"),
+    ("%", "%"),
+    ("^", "^"),
+    ("#", "#"),
+    ("<", "<"),
+    (">", ">"),
+    ("=", "="),
+    ("(", "("),
+    (")", ")"),
+    ("{", "{"),
+    ("}", "}"),
+    ("[", "["),
+    ("]", "]"),
+    (";", ";"),
+    (":", ":"),
+    (",", ","),
+    (".", "."),
+    ("!", "not"),
 ];
 
 fn keyword(s: &str) -> Option<&'static str> {
@@ -55,7 +81,9 @@ fn long_open(b: &[u8], i: usize) -> Option<usize> {
 /// Index just past the matching `]==]`.
 fn long_close(src: &str, from: usize, eqs: usize) -> Option<usize> {
     let close = format!("]{}]", "=".repeat(eqs));
-    src.get(from..)?.find(&close).map(|p| from + p + close.len())
+    src.get(from..)?
+        .find(&close)
+        .map(|p| from + p + close.len())
 }
 
 fn escape(src: &str, i: usize) -> Result<(String, usize), String> {
@@ -76,11 +104,28 @@ fn escape(src: &str, i: usize) -> Result<(String, usize), String> {
             (char::from(v).to_string(), i + 3)
         }
         b'0'..=b'9' => {
-            let n = b[i..].iter().take(3).take_while(|c| c.is_ascii_digit()).count();
+            let n = b[i..]
+                .iter()
+                .take(3)
+                .take_while(|c| c.is_ascii_digit())
+                .count();
             let v: u32 = src[i..i + n].parse().map_err(|_| "bad escape")?;
-            (char::from_u32(v).filter(|_| v < 256).ok_or("escape too large")?.to_string(), i + n)
+            (
+                char::from_u32(v)
+                    .filter(|_| v < 256)
+                    .ok_or("escape too large")?
+                    .to_string(),
+                i + n,
+            )
         }
-        b'z' => ("".into(), i + 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_whitespace()).count()),
+        b'z' => (
+            "".into(),
+            i + 1
+                + b[i + 1..]
+                    .iter()
+                    .take_while(|c| c.is_ascii_whitespace())
+                    .count(),
+        ),
         _ => return Err(format!("invalid escape '\\{}'", c as char)),
     })
 }
@@ -93,7 +138,9 @@ fn number(src: &str, i: usize) -> Result<(f64, usize), String> {
             let c = b[j];
             let prev = b.get(j.wrapping_sub(1)).copied().unwrap_or(0);
             let exp = if hex { b"pP" } else { b"eE" };
-            !(c.is_ascii_alphanumeric() || c == b'.' || ((c == b'+' || c == b'-') && exp.contains(&prev)))
+            !(c.is_ascii_alphanumeric()
+                || c == b'.'
+                || ((c == b'+' || c == b'-') && exp.contains(&prev)))
         })
         .unwrap_or(b.len());
     let text = src[i..end].trim_end_matches(['u', 'U', 'l', 'L', 'i', 'I']);
@@ -101,37 +148,57 @@ fn number(src: &str, i: usize) -> Result<(f64, usize), String> {
         true => i64::from_str_radix(&text[2..], 16).map(|v| v as f64).ok(),
         false => text.parse::<f64>().ok(),
     };
-    v.map(|v| (v, end)).ok_or_else(|| format!("malformed number near '{}'", &src[i..end]))
+    v.map(|v| (v, end))
+        .ok_or_else(|| format!("malformed number near '{}'", &src[i..end]))
 }
 
 /// Tokenises `src`. Comments (`--`, `--[[ ]]`, `//`, `/* */`) are skipped.
 pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
     let b = src.as_bytes();
-    let err = |msg: String, s: usize, e: usize| LexError { msg, span: Span { start: s, end: e } };
+    let err = |msg: String, s: usize, e: usize| LexError {
+        msg,
+        span: Span { start: s, end: e },
+    };
     let mut out = Vec::new();
     let mut i = 0;
     while i < b.len() {
         let c = b[i];
         let start = i;
-        let push = |out: &mut Vec<Token>, tok: Tok, end: usize| out.push(Token { tok, span: Span { start, end } });
+        let push = |out: &mut Vec<Token>, tok: Tok, end: usize| {
+            out.push(Token {
+                tok,
+                span: Span { start, end },
+            })
+        };
         match c {
             _ if c.is_ascii_whitespace() => i += 1,
             b'-' if b.get(i + 1) == Some(&b'-') => {
                 i = match long_open(b, i + 2) {
-                    Some(eqs) => long_close(src, i + 4 + eqs, eqs).ok_or_else(|| err("unfinished long comment".into(), start, b.len()))?,
+                    Some(eqs) => long_close(src, i + 4 + eqs, eqs)
+                        .ok_or_else(|| err("unfinished long comment".into(), start, b.len()))?,
                     None => src[i..].find('\n').map_or(b.len(), |p| i + p),
                 };
             }
-            b'/' if b.get(i + 1) == Some(&b'/') => i = src[i..].find('\n').map_or(b.len(), |p| i + p),
+            b'/' if b.get(i + 1) == Some(&b'/') => {
+                i = src[i..].find('\n').map_or(b.len(), |p| i + p)
+            }
             b'/' if b.get(i + 1) == Some(&b'*') => {
-                i = src[i + 2..].find("*/").map(|p| i + 2 + p + 2).ok_or_else(|| err("unfinished /* comment".into(), start, b.len()))?;
+                i = src[i + 2..]
+                    .find("*/")
+                    .map(|p| i + 2 + p + 2)
+                    .ok_or_else(|| err("unfinished /* comment".into(), start, b.len()))?;
             }
             b'[' if long_open(b, i).is_some() => {
                 let eqs = long_open(b, i).unwrap_or(0);
                 let body = i + 2 + eqs;
-                let end = long_close(src, body, eqs).ok_or_else(|| err("unfinished long string".into(), start, b.len()))?;
+                let end = long_close(src, body, eqs)
+                    .ok_or_else(|| err("unfinished long string".into(), start, b.len()))?;
                 let text = &src[body..end - 2 - eqs];
-                push(&mut out, Tok::Str(text.strip_prefix('\n').unwrap_or(text).to_owned()), end);
+                push(
+                    &mut out,
+                    Tok::Str(text.strip_prefix('\n').unwrap_or(text).to_owned()),
+                    end,
+                );
                 i = end;
             }
             b'"' | b'\'' => {
@@ -139,7 +206,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
                 let mut j = i + 1;
                 loop {
                     match b.get(j) {
-                        None | Some(b'\n') => return Err(err("unfinished string".into(), start, j)),
+                        None | Some(b'\n') => {
+                            return Err(err("unfinished string".into(), start, j));
+                        }
                         Some(q) if *q == c => break,
                         Some(b'\\') => {
                             let (e, next) = escape(src, j + 1).map_err(|m| err(m, j, j + 2))?;
@@ -167,7 +236,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
                 i = end;
             }
             b'$' => {
-                let end = (i + 1..b.len()).find(|&j| !(b[j].is_ascii_alphanumeric() || b[j] == b'_')).unwrap_or(b.len());
+                let end = (i + 1..b.len())
+                    .find(|&j| !(b[j].is_ascii_alphanumeric() || b[j] == b'_'))
+                    .unwrap_or(b.len());
                 if end == i + 1 {
                     return Err(err("expected identifier after '$'".into(), start, end));
                 }
@@ -175,9 +246,15 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
                 i = end;
             }
             _ if c.is_ascii_alphabetic() || c == b'_' || c >= 0x80 => {
-                let end = (i..b.len()).find(|&j| !(b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] >= 0x80)).unwrap_or(b.len());
+                let end = (i..b.len())
+                    .find(|&j| !(b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] >= 0x80))
+                    .unwrap_or(b.len());
                 let word = &src[i..end];
-                push(&mut out, keyword(word).map_or_else(|| Tok::Name(word.to_owned()), Tok::Sym), end);
+                push(
+                    &mut out,
+                    keyword(word).map_or_else(|| Tok::Name(word.to_owned()), Tok::Sym),
+                    end,
+                );
                 i = end;
             }
             _ => match SYMBOLS.iter().find(|(s, _)| src[i..].starts_with(s)) {
@@ -185,11 +262,26 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
                     push(&mut out, Tok::Sym(norm), i + s.len());
                     i += s.len();
                 }
-                None => return Err(err(format!("unexpected symbol '{}'", src[i..].chars().next().unwrap_or('?')), start, i + 1)),
+                None => {
+                    return Err(err(
+                        format!(
+                            "unexpected symbol '{}'",
+                            src[i..].chars().next().unwrap_or('?')
+                        ),
+                        start,
+                        i + 1,
+                    ));
+                }
             },
         }
     }
-    out.push(Token { tok: Tok::Eof, span: Span { start: b.len(), end: b.len() } });
+    out.push(Token {
+        tok: Tok::Eof,
+        span: Span {
+            start: b.len(),
+            end: b.len(),
+        },
+    });
     Ok(out)
 }
 
@@ -205,17 +297,36 @@ mod tests {
     fn glua_aliases_and_comments() {
         assert_eq!(
             toks("a != !b && c || d // x\n/* y */ -- z\n--[[ w ]] continue"),
-            [Tok::Name("a".into()), Tok::Sym("~="), Tok::Sym("not"), Tok::Name("b".into()), Tok::Sym("and"),
-             Tok::Name("c".into()), Tok::Sym("or"), Tok::Name("d".into()), Tok::Sym("continue"), Tok::Eof]
+            [
+                Tok::Name("a".into()),
+                Tok::Sym("~="),
+                Tok::Sym("not"),
+                Tok::Name("b".into()),
+                Tok::Sym("and"),
+                Tok::Name("c".into()),
+                Tok::Sym("or"),
+                Tok::Name("d".into()),
+                Tok::Sym("continue"),
+                Tok::Eof
+            ]
         );
     }
 
     #[test]
     fn strings_numbers_captures() {
-        assert_eq!(toks(r#""a\n" 'b' [[c]] 0x10 1e3 .5 $ply"#), [
-            Tok::Str("a\n".into()), Tok::Str("b".into()), Tok::Str("c".into()),
-            Tok::Number(16.0), Tok::Number(1000.0), Tok::Number(0.5), Tok::Capture("ply".into()), Tok::Eof
-        ]);
+        assert_eq!(
+            toks(r#""a\n" 'b' [[c]] 0x10 1e3 .5 $ply"#),
+            [
+                Tok::Str("a\n".into()),
+                Tok::Str("b".into()),
+                Tok::Str("c".into()),
+                Tok::Number(16.0),
+                Tok::Number(1000.0),
+                Tok::Number(0.5),
+                Tok::Capture("ply".into()),
+                Tok::Eof
+            ]
+        );
         assert!(lex("'open").is_err());
         assert_eq!(lex("x = 1").unwrap()[1].span, Span { start: 2, end: 3 });
     }

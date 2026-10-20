@@ -24,7 +24,12 @@ pub struct Shared {
 
 impl Shared {
     pub(crate) fn new(generation: u64) -> Arc<Self> {
-        Arc::new(Self { jobs: Mutex::new(VecDeque::new()), closed: AtomicBool::new(false), generation, main: std::thread::current().id() })
+        Arc::new(Self {
+            jobs: Mutex::new(VecDeque::new()),
+            closed: AtomicBool::new(false),
+            generation,
+            main: std::thread::current().id(),
+        })
     }
 
     fn push(&self, job: Job) {
@@ -42,10 +47,17 @@ impl Shared {
     }
 
     pub(crate) fn drain(&self, lua: &Lua) {
-        let jobs: Vec<Job> = self.jobs.lock().map(|mut q| q.drain(..).collect()).unwrap_or_default();
+        let jobs: Vec<Job> = self
+            .jobs
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default();
         jobs.into_iter().for_each(|j| {
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| j(Some(lua)))).is_err() {
-                super::executor::log_error(lua, &format!("[{}] LuaHandle job panicked", lua.module_name()));
+                super::executor::log_error(
+                    lua,
+                    &format!("[{}] LuaHandle job panicked", lua.module_name()),
+                );
             }
         });
     }
@@ -82,7 +94,10 @@ pub(crate) fn oneshot<T>() -> (impl FnOnce(T) + Send, Receive<T>)
 where
     T: Send + 'static,
 {
-    let slot = Arc::new(Mutex::new(Slot { value: None, waker: None }));
+    let slot = Arc::new(Mutex::new(Slot {
+        value: None,
+        waker: None,
+    }));
     let tx = slot.clone();
     let send = move |v: T| {
         let w = tx.lock().ok().and_then(|mut s| {
@@ -114,7 +129,9 @@ impl<T> Future for Receive<T> {
 
 impl LuaHandle {
     pub fn new(lua: &Lua) -> Self {
-        Self { shared: super::executor::get(lua).shared.clone() }
+        Self {
+            shared: super::executor::get(lua).shared.clone(),
+        }
     }
 
     pub fn generation(&self) -> u64 {
@@ -149,7 +166,10 @@ impl LuaHandle {
         self.shared.push(Box::new(move |lua| {
             if let Some(l) = lua {
                 if let Err(e) = f(l) {
-                    super::executor::log_error(l, &format!("[{}] spawn: {}", l.module_name(), e.lua_message()));
+                    super::executor::log_error(
+                        l,
+                        &format!("[{}] spawn: {}", l.module_name(), e.lua_message()),
+                    );
                 }
             }
         }));
@@ -162,7 +182,9 @@ impl LuaHandle {
         F: FnOnce(&Lua) -> Result<T> + Send + 'static,
     {
         if std::thread::current().id() == self.shared.main {
-            return Err(Error::msg("LuaHandle::call_blocking on the main thread would deadlock"));
+            return Err(Error::msg(
+                "LuaHandle::call_blocking on the main thread would deadlock",
+            ));
         }
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<T>>(1);
         self.shared.push(Box::new(move |lua| {

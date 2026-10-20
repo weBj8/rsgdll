@@ -4,10 +4,20 @@ use rsgdll_sys::lua::*;
 
 /// Stock LuaJIT path: `RSGDLL_LUAJIT` or common system names.
 pub fn luajit() -> libloading::Library {
-    let names: Vec<String> = std::env::var("RSGDLL_LUAJIT").into_iter().chain(
-        ["libluajit-5.1.so.2", "libluajit-5.1.so", "lua51.dll", "libluajit-5.1.dylib"].map(String::from),
-    ).collect();
-    names.into_iter()
+    let names: Vec<String> = std::env::var("RSGDLL_LUAJIT")
+        .into_iter()
+        .chain(
+            [
+                "libluajit-5.1.so.2",
+                "libluajit-5.1.so",
+                "lua51.dll",
+                "libluajit-5.1.dylib",
+            ]
+            .map(String::from),
+        )
+        .collect();
+    names
+        .into_iter()
         // SAFETY: test-only load of a Lua library.
         .find_map(|n| unsafe { libloading::Library::new(&n) }.ok())
         .expect("stock LuaJIT not found; set RSGDLL_LUAJIT")
@@ -22,7 +32,10 @@ fn fn_table_runs_chunk() {
         let l = (a.luaL_newstate)();
         (a.luaL_openlibs)(l);
         let src = "return 1 + 2";
-        assert_eq!((a.luaL_loadbuffer)(l, src.as_ptr().cast(), src.len(), c"=t".as_ptr()), LUA_OK);
+        assert_eq!(
+            (a.luaL_loadbuffer)(l, src.as_ptr().cast(), src.len(), c"=t".as_ptr()),
+            LUA_OK
+        );
         assert_eq!((a.lua_pcall)(l, 0, 1, 0), LUA_OK);
         assert_eq!((a.lua_tonumber)(l, -1), 3.0);
         (a.lua_close)(l);

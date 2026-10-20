@@ -48,7 +48,12 @@ impl<T: Serialize> IntoLua for LuaSerde<T> {
 
 impl<T: DeserializeOwned> FromLua for LuaSerde<T> {
     fn from_lua(lua: &Lua, idx: c_int) -> Result<Self, ConvError> {
-        T::deserialize(De { lua, idx: lua.abs(idx) }).map(LuaSerde).map_err(|e| e.0)
+        T::deserialize(De {
+            lua,
+            idx: lua.abs(idx),
+        })
+        .map(LuaSerde)
+        .map_err(|e| e.0)
     }
 }
 
@@ -84,7 +89,8 @@ impl<'a, 'l> Table<'a, 'l> {
 }
 
 fn wrap_variant(s: &mut Stage<'_>, variant: &'static str) {
-    s.table(0, 1).op(Op::PushStr(variant.as_ptr(), variant.len()), 1);
+    s.table(0, 1)
+        .op(Op::PushStr(variant.as_ptr(), variant.len()), 1);
 }
 
 impl<'a, 'l> ser::Serializer for Ser<'a, 'l> {
@@ -98,27 +104,88 @@ impl<'a, 'l> ser::Serializer for Ser<'a, 'l> {
     type SerializeStruct = Table<'a, 'l>;
     type SerializeStructVariant = Table<'a, 'l>;
 
-    fn serialize_bool(self, v: bool) -> R<()> { self.0.bool(v); Ok(()) }
-    fn serialize_i8(self, v: i8) -> R<()> { self.serialize_i64(v.into()) }
-    fn serialize_i16(self, v: i16) -> R<()> { self.serialize_i64(v.into()) }
-    fn serialize_i32(self, v: i32) -> R<()> { self.serialize_i64(v.into()) }
-    fn serialize_i64(self, v: i64) -> R<()> { from_int(v.into()).map(|n| { self.0.number(n); }).map_err(SerdeError) }
-    fn serialize_u8(self, v: u8) -> R<()> { self.serialize_i64(v.into()) }
-    fn serialize_u16(self, v: u16) -> R<()> { self.serialize_i64(v.into()) }
-    fn serialize_u32(self, v: u32) -> R<()> { self.serialize_i64(v.into()) }
-    fn serialize_u64(self, v: u64) -> R<()> { from_int(v.into()).map(|n| { self.0.number(n); }).map_err(SerdeError) }
-    fn serialize_f32(self, v: f32) -> R<()> { self.0.number(v.into()); Ok(()) }
-    fn serialize_f64(self, v: f64) -> R<()> { self.0.number(v); Ok(()) }
-    fn serialize_char(self, v: char) -> R<()> { self.serialize_str(v.encode_utf8(&mut [0; 4])) }
-    fn serialize_str(self, v: &str) -> R<()> { self.0.bytes(v.as_bytes()); Ok(()) }
-    fn serialize_bytes(self, v: &[u8]) -> R<()> { self.0.bytes(v); Ok(()) }
-    fn serialize_none(self) -> R<()> { self.0.nil(); Ok(()) }
-    fn serialize_some<T: ?Sized + Serialize>(self, v: &T) -> R<()> { v.serialize(self) }
-    fn serialize_unit(self) -> R<()> { self.0.nil(); Ok(()) }
-    fn serialize_unit_struct(self, _: &'static str) -> R<()> { self.serialize_unit() }
-    fn serialize_unit_variant(self, _: &'static str, _: u32, v: &'static str) -> R<()> { self.serialize_str(v) }
-    fn serialize_newtype_struct<T: ?Sized + Serialize>(self, _: &'static str, v: &T) -> R<()> { v.serialize(self) }
-    fn serialize_newtype_variant<T: ?Sized + Serialize>(self, _: &'static str, _: u32, variant: &'static str, v: &T) -> R<()> {
+    fn serialize_bool(self, v: bool) -> R<()> {
+        self.0.bool(v);
+        Ok(())
+    }
+    fn serialize_i8(self, v: i8) -> R<()> {
+        self.serialize_i64(v.into())
+    }
+    fn serialize_i16(self, v: i16) -> R<()> {
+        self.serialize_i64(v.into())
+    }
+    fn serialize_i32(self, v: i32) -> R<()> {
+        self.serialize_i64(v.into())
+    }
+    fn serialize_i64(self, v: i64) -> R<()> {
+        from_int(v.into())
+            .map(|n| {
+                self.0.number(n);
+            })
+            .map_err(SerdeError)
+    }
+    fn serialize_u8(self, v: u8) -> R<()> {
+        self.serialize_i64(v.into())
+    }
+    fn serialize_u16(self, v: u16) -> R<()> {
+        self.serialize_i64(v.into())
+    }
+    fn serialize_u32(self, v: u32) -> R<()> {
+        self.serialize_i64(v.into())
+    }
+    fn serialize_u64(self, v: u64) -> R<()> {
+        from_int(v.into())
+            .map(|n| {
+                self.0.number(n);
+            })
+            .map_err(SerdeError)
+    }
+    fn serialize_f32(self, v: f32) -> R<()> {
+        self.0.number(v.into());
+        Ok(())
+    }
+    fn serialize_f64(self, v: f64) -> R<()> {
+        self.0.number(v);
+        Ok(())
+    }
+    fn serialize_char(self, v: char) -> R<()> {
+        self.serialize_str(v.encode_utf8(&mut [0; 4]))
+    }
+    fn serialize_str(self, v: &str) -> R<()> {
+        self.0.bytes(v.as_bytes());
+        Ok(())
+    }
+    fn serialize_bytes(self, v: &[u8]) -> R<()> {
+        self.0.bytes(v);
+        Ok(())
+    }
+    fn serialize_none(self) -> R<()> {
+        self.0.nil();
+        Ok(())
+    }
+    fn serialize_some<T: ?Sized + Serialize>(self, v: &T) -> R<()> {
+        v.serialize(self)
+    }
+    fn serialize_unit(self) -> R<()> {
+        self.0.nil();
+        Ok(())
+    }
+    fn serialize_unit_struct(self, _: &'static str) -> R<()> {
+        self.serialize_unit()
+    }
+    fn serialize_unit_variant(self, _: &'static str, _: u32, v: &'static str) -> R<()> {
+        self.serialize_str(v)
+    }
+    fn serialize_newtype_struct<T: ?Sized + Serialize>(self, _: &'static str, v: &T) -> R<()> {
+        v.serialize(self)
+    }
+    fn serialize_newtype_variant<T: ?Sized + Serialize>(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+        v: &T,
+    ) -> R<()> {
         wrap_variant(self.0, variant);
         v.serialize(Ser(self.0))?;
         self.0.raw_set();
@@ -126,24 +193,58 @@ impl<'a, 'l> ser::Serializer for Ser<'a, 'l> {
     }
     fn serialize_seq(self, n: Option<usize>) -> R<Table<'a, 'l>> {
         self.0.table(n.unwrap_or(0), 0);
-        Ok(Table { s: self.0, next: 0, wrapped: false })
+        Ok(Table {
+            s: self.0,
+            next: 0,
+            wrapped: false,
+        })
     }
-    fn serialize_tuple(self, n: usize) -> R<Table<'a, 'l>> { self.serialize_seq(Some(n)) }
-    fn serialize_tuple_struct(self, _: &'static str, n: usize) -> R<Table<'a, 'l>> { self.serialize_seq(Some(n)) }
-    fn serialize_tuple_variant(self, _: &'static str, _: u32, variant: &'static str, n: usize) -> R<Table<'a, 'l>> {
+    fn serialize_tuple(self, n: usize) -> R<Table<'a, 'l>> {
+        self.serialize_seq(Some(n))
+    }
+    fn serialize_tuple_struct(self, _: &'static str, n: usize) -> R<Table<'a, 'l>> {
+        self.serialize_seq(Some(n))
+    }
+    fn serialize_tuple_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+        n: usize,
+    ) -> R<Table<'a, 'l>> {
         wrap_variant(self.0, variant);
         self.0.table(n, 0);
-        Ok(Table { s: self.0, next: 0, wrapped: true })
+        Ok(Table {
+            s: self.0,
+            next: 0,
+            wrapped: true,
+        })
     }
     fn serialize_map(self, n: Option<usize>) -> R<Table<'a, 'l>> {
         self.0.table(0, n.unwrap_or(0));
-        Ok(Table { s: self.0, next: 0, wrapped: false })
+        Ok(Table {
+            s: self.0,
+            next: 0,
+            wrapped: false,
+        })
     }
-    fn serialize_struct(self, _: &'static str, n: usize) -> R<Table<'a, 'l>> { self.serialize_map(Some(n)) }
-    fn serialize_struct_variant(self, _: &'static str, _: u32, variant: &'static str, n: usize) -> R<Table<'a, 'l>> {
+    fn serialize_struct(self, _: &'static str, n: usize) -> R<Table<'a, 'l>> {
+        self.serialize_map(Some(n))
+    }
+    fn serialize_struct_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+        n: usize,
+    ) -> R<Table<'a, 'l>> {
         wrap_variant(self.0, variant);
         self.0.table(0, n);
-        Ok(Table { s: self.0, next: 0, wrapped: true })
+        Ok(Table {
+            s: self.0,
+            next: 0,
+            wrapped: true,
+        })
     }
 }
 
@@ -157,18 +258,27 @@ macro_rules! seq_impl {
         }
     )*};
 }
-seq_impl!(SerializeSeq::serialize_element, SerializeTuple::serialize_element, SerializeTupleStruct::serialize_field, SerializeTupleVariant::serialize_field);
+seq_impl!(
+    SerializeSeq::serialize_element,
+    SerializeTuple::serialize_element,
+    SerializeTupleStruct::serialize_field,
+    SerializeTupleVariant::serialize_field
+);
 
 impl ser::SerializeMap for Table<'_, '_> {
     type Ok = ();
     type Error = SerdeError;
-    fn serialize_key<T: ?Sized + Serialize>(&mut self, k: &T) -> R<()> { k.serialize(Ser(self.s)) }
+    fn serialize_key<T: ?Sized + Serialize>(&mut self, k: &T) -> R<()> {
+        k.serialize(Ser(self.s))
+    }
     fn serialize_value<T: ?Sized + Serialize>(&mut self, v: &T) -> R<()> {
         v.serialize(Ser(self.s))?;
         self.s.raw_set();
         Ok(())
     }
-    fn end(self) -> R<()> { self.close() }
+    fn end(self) -> R<()> {
+        self.close()
+    }
 }
 
 macro_rules! struct_impl {
@@ -204,7 +314,12 @@ impl<'l> De<'l> {
 fn visit_seq<'de, V: Visitor<'de>>(lua: &Lua, t: c_int, v: V) -> R<V::Value> {
     let n = len(lua, t).map_err(SerdeError)?;
     let mut i = 0usize;
-    v.visit_seq(SeqAccess { lua, t, i: &mut i, n })
+    v.visit_seq(SeqAccess {
+        lua,
+        t,
+        i: &mut i,
+        n,
+    })
 }
 
 struct SeqAccess<'a, 'l> {
@@ -223,7 +338,10 @@ impl<'de> de::SeqAccess<'de> for SeqAccess<'_, '_> {
                 *self.i += 1;
                 let g = self.lua.guard();
                 let idx = fetch_index(self.lua, self.t, *self.i).map_err(SerdeError)?;
-                let r = seed.deserialize(De { lua: self.lua, idx }).map(Some).map_err(|e| SerdeError(e.0.at(self.i.to_string())));
+                let r = seed
+                    .deserialize(De { lua: self.lua, idx })
+                    .map(Some)
+                    .map_err(|e| SerdeError(e.0.at(self.i.to_string())));
                 drop(g);
                 r
             }
@@ -242,7 +360,12 @@ fn visit_map<'de, V: Visitor<'de>>(lua: &Lua, t: c_int, v: V) -> R<V::Value> {
         Ok(())
     })
     .map_err(SerdeError)?;
-    v.visit_map(MapAccess { lua, t, keys: keys.into_iter(), cur: None })
+    v.visit_map(MapAccess {
+        lua,
+        t,
+        keys: keys.into_iter(),
+        cur: None,
+    })
 }
 
 struct MapAccess<'l, I> {
@@ -268,7 +391,9 @@ impl<'de, I: Iterator<Item = String>> de::MapAccess<'de> for MapAccess<'_, I> {
         let k = self.cur.take().unwrap_or_default();
         let g = self.lua.guard();
         let idx = super::table::fetch_field(self.lua, self.t, &k).map_err(SerdeError)?;
-        let r = seed.deserialize(De { lua: self.lua, idx }).map_err(|e| SerdeError(e.0.at(k)));
+        let r = seed
+            .deserialize(De { lua: self.lua, idx })
+            .map_err(|e| SerdeError(e.0.at(k)));
         drop(g);
         r
     }
@@ -282,7 +407,9 @@ impl<'de> de::Deserializer<'de> for De<'_> {
         match r.tag {
             LUA_TNIL | LUA_TNONE => v.visit_unit(),
             LUA_TBOOLEAN => v.visit_bool(r.num != 0.0),
-            LUA_TNUMBER if r.num.fract() == 0.0 && r.num.abs() < 9.007_199_254_740_992e15 => v.visit_i64(r.num as i64),
+            LUA_TNUMBER if r.num.fract() == 0.0 && r.num.abs() < 9.007_199_254_740_992e15 => {
+                v.visit_i64(r.num as i64)
+            }
             LUA_TNUMBER => v.visit_f64(r.num),
             LUA_TSTRING => match self.lua.raw_bytes(self.idx).map(std::str::from_utf8) {
                 Some(Ok(s)) => v.visit_str(s),
@@ -314,7 +441,12 @@ impl<'de> de::Deserializer<'de> for De<'_> {
         visit_map(self.lua, self.idx, v)
     }
 
-    fn deserialize_struct<V: Visitor<'de>>(self, _: &'static str, _: &'static [&'static str], v: V) -> R<V::Value> {
+    fn deserialize_struct<V: Visitor<'de>>(
+        self,
+        _: &'static str,
+        _: &'static [&'static str],
+        v: V,
+    ) -> R<V::Value> {
         self.deserialize_map(v)
     }
 
@@ -322,7 +454,12 @@ impl<'de> de::Deserializer<'de> for De<'_> {
         v.visit_newtype_struct(self)
     }
 
-    fn deserialize_enum<V: Visitor<'de>>(self, _: &'static str, _: &'static [&'static str], v: V) -> R<V::Value> {
+    fn deserialize_enum<V: Visitor<'de>>(
+        self,
+        _: &'static str,
+        _: &'static [&'static str],
+        v: V,
+    ) -> R<V::Value> {
         match self.lua.read(self.idx).tag {
             LUA_TSTRING => {
                 let s = String::from_lua(self.lua, self.idx).map_err(SerdeError)?;
@@ -336,7 +473,11 @@ impl<'de> de::Deserializer<'de> for De<'_> {
                 })
                 .map_err(SerdeError)?;
                 let variant = entry.ok_or_else(|| self.err("enum variant table"))?;
-                v.visit_enum(EnumAccess { lua: self.lua, t: self.idx, variant })
+                v.visit_enum(EnumAccess {
+                    lua: self.lua,
+                    t: self.idx,
+                    variant,
+                })
             }
             _ => Err(self.err("enum (string or table)")),
         }
@@ -357,9 +498,19 @@ struct EnumAccess<'l> {
 impl<'de, 'l> de::EnumAccess<'de> for EnumAccess<'l> {
     type Error = SerdeError;
     type Variant = VariantAccess<'l>;
-    fn variant_seed<V: de::DeserializeSeed<'de>>(self, seed: V) -> R<(V::Value, VariantAccess<'l>)> {
+    fn variant_seed<V: de::DeserializeSeed<'de>>(
+        self,
+        seed: V,
+    ) -> R<(V::Value, VariantAccess<'l>)> {
         let v = seed.deserialize(self.variant.clone().into_deserializer())?;
-        Ok((v, VariantAccess { lua: self.lua, t: self.t, variant: self.variant }))
+        Ok((
+            v,
+            VariantAccess {
+                lua: self.lua,
+                t: self.t,
+                variant: self.variant,
+            },
+        ))
     }
 }
 

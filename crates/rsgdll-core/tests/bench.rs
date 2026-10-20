@@ -37,5 +37,9 @@ fn protected_op_overhead() {
         s.finish().unwrap();
         unsafe { (a.lua_settop)(l, 0) };
     }) / 8.0;
-    println!("BENCH overhead single={:.1}x batched={:.1}x", one / raw, batch / raw);
+    println!(
+        "BENCH overhead single={:.1}x batched={:.1}x",
+        one / raw,
+        batch / raw
+    );
 }

@@ -20,7 +20,12 @@ pub fn async_function(a: FnAttr, mut item: ItemFn) -> syn::Result<TokenStream> {
     item.sig.inputs.iter_mut().enumerate().for_each(|(i, arg)| {
         if let FnArg::Typed(t) = arg {
             let before = t.attrs.len();
-            t.attrs.retain(|at| !(at.path().is_ident("lua") && at.parse_args::<syn::Ident>().is_ok_and(|id| id == "callback")));
+            t.attrs.retain(|at| {
+                !(at.path().is_ident("lua")
+                    && at
+                        .parse_args::<syn::Ident>()
+                        .is_ok_and(|id| id == "callback"))
+            });
             if t.attrs.len() != before {
                 explicit_cb = Some(i);
             }
@@ -37,11 +42,19 @@ pub fn async_function(a: FnAttr, mut item: ItemFn) -> syn::Result<TokenStream> {
         .collect::<syn::Result<_>>()?;
     let kinds: Vec<Option<String>> = params.iter().map(|p| last_ident(&p.ty)).collect();
     if kinds.iter().any(|k| k.as_deref() == Some("Variadic")) {
-        return Err(err(item.sig.span(), "`Variadic<T>` is not allowed in async exports"));
+        return Err(err(
+            item.sig.span(),
+            "`Variadic<T>` is not allowed in async exports",
+        ));
     }
-    let ambiguous = kinds.iter().enumerate().any(|(i, k)| Some(i) != explicit_cb && matches!(k.as_deref(), Some("Option" | "LuaFunction")));
+    let ambiguous = kinds.iter().enumerate().any(|(i, k)| {
+        Some(i) != explicit_cb && matches!(k.as_deref(), Some("Option" | "LuaFunction"))
+    });
     if ambiguous && explicit_cb.is_none() {
-        return Err(err(item.sig.span(), "async export with `Option`/`LuaFunction` params must mark the callback with `#[lua(callback)] cb: Callback`"));
+        return Err(err(
+            item.sig.span(),
+            "async export with `Option`/`LuaFunction` params must mark the callback with `#[lua(callback)] cb: Callback`",
+        ));
     }
     let mut stmts = Vec::new();
     let mut call = Vec::new();

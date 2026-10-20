@@ -60,14 +60,24 @@ pub fn hook(attr: TokenStream, item: ItemFn) -> syn::Result<TokenStream> {
                 Ok(())
             });
             syn::parse::Parser::parse2(p, attr)?;
-            let t = target.ok_or_else(|| err(Span::call_site(), "expected a hook name: `Think` or \"Custom.Event\""))?;
+            let t = target.ok_or_else(|| {
+                err(
+                    Span::call_site(),
+                    "expected a hook name: `Think` or \"Custom.Event\"",
+                )
+            })?;
             (t, unchecked)
         }
     };
     let ident = &item.sig.ident;
     let fname = ident.to_string();
     let takes_lua = matches!(item.sig.inputs.first(), Some(FnArg::Typed(t)) if is_lua_ref(&t.ty));
-    let params: Vec<&FnArg> = item.sig.inputs.iter().skip(usize::from(takes_lua)).collect();
+    let params: Vec<&FnArg> = item
+        .sig
+        .inputs
+        .iter()
+        .skip(usize::from(takes_lua))
+        .collect();
     let unit = returns_unit(&item.sig.output);
     let kind = ret_kind(&item.sig.output);
     let (event, body, guard) = match (&target, unchecked) {
@@ -77,17 +87,24 @@ pub fn hook(attr: TokenStream, item: ItemFn) -> syn::Result<TokenStream> {
             let found = db.hook("GM", &name).or_else(|| db.hook("SANDBOX", &name));
             let Some(found) = found else {
                 let all = db.hooks.values().map(|h| h.name.as_str());
-                let hint = rsgdll_luacheck::suggest(&name, all).map_or(String::new(), |s| format!(" (did you mean `{s}`?)"));
-                return Err(err(h.span(), format!("unknown GMod hook `{name}`{hint}; use a string for custom hooks")));
+                let hint = rsgdll_luacheck::suggest(&name, all)
+                    .map_or(String::new(), |s| format!(" (did you mean `{s}`?)"));
+                return Err(err(
+                    h.span(),
+                    format!("unknown GMod hook `{name}`{hint}; use a string for custom hooks"),
+                ));
             };
             let path = match found.owner.as_str() {
                 "SANDBOX" => quote!(#rt::gmod::hooks::sandbox::#h),
                 _ => quote!(#rt::gmod::hooks::#h),
             };
-            let tys: Vec<&Type> = params.iter().filter_map(|a| match a {
-                FnArg::Typed(t) => Some(&*t.ty),
-                _ => None,
-            }).collect();
+            let tys: Vec<&Type> = params
+                .iter()
+                .filter_map(|a| match a {
+                    FnArg::Typed(t) => Some(&*t.ty),
+                    _ => None,
+                })
+                .collect();
             let idx: Vec<syn::Index> = (0..tys.len()).map(syn::Index::from).collect();
             let guard = realm_guard(h.span(), found.realm.as_str(), &format!("hook `{name}`"));
             let (stmts, call) = convert_args(item.sig.inputs.iter(), 1)?;
@@ -118,7 +135,11 @@ pub fn hook(attr: TokenStream, item: ItemFn) -> syn::Result<TokenStream> {
                     ::core::result::Result::Ok(#out)
                 })
             };
-            (name, body, (found.realm != rsgdll_apidb::Realm::Shared).then_some(guard))
+            (
+                name,
+                body,
+                (found.realm != rsgdll_apidb::Realm::Shared).then_some(guard),
+            )
         }
         (t, _) => {
             let name = match t {
@@ -146,9 +167,13 @@ pub fn hook(attr: TokenStream, item: ItemFn) -> syn::Result<TokenStream> {
 /// Compile-time duration parse (`"1s"`, `"500ms"`, `"2m"`).
 fn seconds(l: &LitStr) -> syn::Result<f64> {
     let s = l.value();
-    let split = s.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(s.len());
+    let split = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(s.len());
     let (n, unit) = s.split_at(split);
-    let n: f64 = n.parse().map_err(|_| err(l.span(), "expected a duration like \"1s\" or \"500ms\""))?;
+    let n: f64 = n
+        .parse()
+        .map_err(|_| err(l.span(), "expected a duration like \"1s\" or \"500ms\""))?;
     Ok(n * match unit {
         "ms" => 0.001,
         "s" => 1.0,
@@ -177,7 +202,12 @@ pub fn timer(attr: TokenStream, item: ItemFn) -> syn::Result<TokenStream> {
             let n = r.unwrap_or(1);
             (s, quote!(#rt::gmod::timer::Repeat::Times(#n)))
         }
-        _ => return Err(err(item.sig.span(), "use `every = \"..\"` or `delay = \"..\"[, repeat = N]`")),
+        _ => {
+            return Err(err(
+                item.sig.span(),
+                "use `every = \"..\"` or `delay = \"..\"[, repeat = N]`",
+            ));
+        }
     };
     let ident = &item.sig.ident;
     let fname = ident.to_string();

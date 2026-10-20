@@ -29,8 +29,11 @@ pub fn install_panic_hook() {
             let inside = IN_TRAMPOLINE.with(|d| *d.borrow() > 0);
             if inside {
                 let msg = info.to_string();
-                let bt = crate::error::backtrace_enabled()
-                    .then(|| crate::error::trim_backtrace(&std::backtrace::Backtrace::force_capture().to_string()));
+                let bt = crate::error::backtrace_enabled().then(|| {
+                    crate::error::trim_backtrace(
+                        &std::backtrace::Backtrace::force_capture().to_string(),
+                    )
+                });
                 LAST_PANIC.with(|p| *p.borrow_mut() = Some((msg, bt)));
             } else {
                 prev(info);
@@ -40,8 +43,12 @@ pub fn install_panic_hook() {
 }
 
 fn panic_message() -> String {
-    let (msg, bt) = LAST_PANIC.with(|p| p.borrow_mut().take()).unwrap_or_else(|| ("unknown panic".into(), None));
-    let msg = msg.strip_prefix("panicked at ").map_or(msg.clone(), |m| m.to_owned());
+    let (msg, bt) = LAST_PANIC
+        .with(|p| p.borrow_mut().take())
+        .unwrap_or_else(|| ("unknown panic".into(), None));
+    let msg = msg
+        .strip_prefix("panicked at ")
+        .map_or(msg.clone(), |m| m.to_owned());
     match bt {
         Some(bt) if !bt.is_empty() => format!("rust panic: {msg}\nrust stack traceback:\n{bt}"),
         _ => format!("rust panic: {msg}"),
@@ -64,7 +71,10 @@ pub fn format_error(module: &str, path: &str, message: &str) -> String {
 /// Pushes `msg` (protected); falls back to the pre-interned OOM message.
 pub fn push_message(lua: &Lua, msg: &str) {
     let base = lua.top();
-    if lua.run(&[], &[Op::PushStr(msg.as_ptr(), msg.len())]).is_err() {
+    if lua
+        .run(&[], &[Op::PushStr(msg.as_ptr(), msg.len())])
+        .is_err()
+    {
         // SAFETY: shrinking + rawgeti never allocate.
         unsafe { (lua.api().lua_settop)(lua.raw(), base) };
         lua.push_ref(lua.runtime().boot.oom_message);
@@ -107,7 +117,9 @@ fn run(l: *mut lua_State, f: &dyn Fn(&Lua) -> Outcome) -> Option<c_int> {
             // SAFETY: as above.
             match unsafe { Lua::from_raw(l) } {
                 Ok(lua) => push_message(&lua, &msg),
-                Err(_) => unsafe { (rsgdll_sys::api().lua_pushlstring)(l, msg.as_ptr().cast(), msg.len()) },
+                Err(_) => unsafe {
+                    (rsgdll_sys::api().lua_pushlstring)(l, msg.as_ptr().cast(), msg.len())
+                },
             }
             None
         }

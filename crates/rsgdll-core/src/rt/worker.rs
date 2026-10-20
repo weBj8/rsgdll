@@ -50,7 +50,9 @@ fn submit(job: Job) {
     let grow = p.idle.load(Ordering::Acquire) == 0 && p.threads.load(Ordering::Acquire) < p.cap;
     if grow {
         let n = p.threads.fetch_add(1, Ordering::AcqRel);
-        let spawned = std::thread::Builder::new().name(format!("rsgdll-worker-{n}")).spawn(move || worker_loop(pool()));
+        let spawned = std::thread::Builder::new()
+            .name(format!("rsgdll-worker-{n}"))
+            .spawn(move || worker_loop(pool()));
         if spawned.is_err() {
             p.threads.fetch_sub(1, Ordering::AcqRel);
         }
@@ -71,7 +73,8 @@ where
         c.fetch_add(1, Ordering::AcqRel);
     }
     submit(Box::new(move || {
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| Err(Error::msg("worker task panicked")));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+            .unwrap_or_else(|_| Err(Error::msg("worker task panicked")));
         send(r);
         if let Some(c) = counter {
             c.fetch_sub(1, Ordering::AcqRel);

@@ -65,7 +65,9 @@ impl FromLua for LuaValue {
             LUA_TNIL | LUA_TNONE => LuaValue::Nil,
             LUA_TBOOLEAN => LuaValue::Bool(r.num != 0.0),
             LUA_TNUMBER => LuaValue::Number(r.num),
-            LUA_TSTRING => LuaValue::String(lua.raw_bytes(idx).map(<[u8]>::to_vec).unwrap_or_default()),
+            LUA_TSTRING => {
+                LuaValue::String(lua.raw_bytes(idx).map(<[u8]>::to_vec).unwrap_or_default())
+            }
             LUA_TTABLE => LuaValue::Table(LuaTable::from_lua(lua, idx)?),
             LUA_TFUNCTION => LuaValue::Function(LuaFunction::from_lua(lua, idx)?),
             _ => LuaValue::Other(LuaAny::from_lua(lua, idx)?),

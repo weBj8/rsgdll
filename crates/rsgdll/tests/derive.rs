@@ -52,7 +52,13 @@ fn rt<T: rsgdll::IntoLua + rsgdll::FromLua>(lua: &Lua, v: T) -> T {
 #[test]
 fn struct_roundtrip_and_attrs() {
     let (l, lua) = common::state();
-    let c = Config { name: "a".into(), retries: 3, steam_id: Some("x".into()), cache: vec![1], big: 76561198000000000 };
+    let c = Config {
+        name: "a".into(),
+        retries: 3,
+        steam_id: Some("x".into()),
+        cache: vec![1],
+        big: 76561198000000000,
+    };
     let back = rt(&lua, c.clone());
     assert_eq!(back, Config { cache: vec![], ..c });
     common::exec(l, "cfg = { Name = 'n', Big = '5' }").unwrap();
@@ -60,15 +66,26 @@ fn struct_roundtrip_and_attrs() {
     assert_eq!((cfg.retries, cfg.steam_id, cfg.big), (0, None, 5));
     common::exec(l, "bad = { Name = 'n', Retries = 'x', Big = '1' }").unwrap();
     let e = lua.global::<Config>("bad").unwrap_err().to_string();
-    assert!(e.contains("field 'Retries'") && e.contains("expected number, got string"), "{e}");
+    assert!(
+        e.contains("field 'Retries'") && e.contains("expected number, got string"),
+        "{e}"
+    );
 }
 
 #[test]
 fn enums() {
     let (l, lua) = common::state();
-    assert_eq!(rt(&lua, Action::Ban { minutes: 5 }), Action::Ban { minutes: 5 });
+    assert_eq!(
+        rt(&lua, Action::Ban { minutes: 5 }),
+        Action::Ban { minutes: 5 }
+    );
     common::exec(l, "a = { kind = 'Kick', reason = 'spam' }").unwrap();
-    assert_eq!(lua.global::<Action>("a").unwrap(), Action::Kick { reason: "spam".into() });
+    assert_eq!(
+        lua.global::<Action>("a").unwrap(),
+        Action::Kick {
+            reason: "spam".into()
+        }
+    );
     assert_eq!(rt(&lua, Colour::Green), Colour::Green);
     common::exec(l, "c = 'Red'").unwrap();
     assert_eq!(lua.global::<Colour>("c").unwrap(), Colour::Red);

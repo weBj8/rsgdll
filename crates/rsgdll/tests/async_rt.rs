@@ -5,10 +5,10 @@ mod common;
 
 use std::time::Duration;
 
-use rsgdll::prelude::*;
-use rsgdll::Realm;
 use rsgdll::__rt::module::{self, ModuleInfo};
 use rsgdll::__rt::rt::executor;
+use rsgdll::Realm;
+use rsgdll::prelude::*;
 
 #[rsgdll::function]
 async fn fetch(lua: LocalLua, x: i32) -> Result<String> {
@@ -23,7 +23,11 @@ async fn fails() -> Result<i32> {
     Err(anyhow!("async nope"))
 }
 
-static INFO: ModuleInfo = ModuleInfo { name: "a", realms: &[Realm::Server], gmod: false };
+static INFO: ModuleInfo = ModuleInfo {
+    name: "a",
+    realms: &[Realm::Server],
+    gmod: false,
+};
 
 fn open() -> (*mut rsgdll::__rt::sys::lua_State, Lua) {
     let a = common::api();
@@ -49,10 +53,15 @@ fn handle_call_from_thread_and_blocking() {
     let (l, lua) = open();
     common::exec(l, "answer = 41").unwrap();
     let h = lua.handle();
-    let t = std::thread::spawn(move || h.call_blocking(|lua| lua.global::<i32>("answer").map(|v| v + 1)));
+    let t = std::thread::spawn(move || {
+        h.call_blocking(|lua| lua.global::<i32>("answer").map(|v| v + 1))
+    });
     pump_until(&lua, || t.is_finished());
     assert_eq!(t.join().unwrap().unwrap(), 42);
-    assert!(lua.handle().call_blocking(|_| Ok(())).is_err(), "main-thread call_blocking must error");
+    assert!(
+        lua.handle().call_blocking(|_| Ok(())).is_err(),
+        "main-thread call_blocking must error"
+    );
     unsafe { module::close(l) };
 }
 
@@ -60,9 +69,15 @@ fn handle_call_from_thread_and_blocking() {
 fn async_export_callback() {
     let (l, lua) = open();
     common::exec(l, "a.Fetch(4, function(err, v) got = tostring(err) .. ':' .. tostring(v) end) a.Fails(function(err) bad = err end)").unwrap();
-    pump_until(&lua, || common::exec(l, "return tostring(got ~= nil and bad ~= nil)").unwrap() == "true");
+    pump_until(&lua, || {
+        common::exec(l, "return tostring(got ~= nil and bad ~= nil)").unwrap() == "true"
+    });
     assert_eq!(common::exec(l, "return got").unwrap(), "nil:v8");
-    assert!(common::exec(l, "return bad").unwrap().contains("[a] a.Fails: async nope"));
+    assert!(
+        common::exec(l, "return bad")
+            .unwrap()
+            .contains("[a] a.Fails: async nope")
+    );
     let e = common::exec(l, "a.Fetch(1)").unwrap_err();
     assert!(e.contains("bad argument #2"), "{e}");
     unsafe { module::close(l) };
@@ -75,7 +90,9 @@ fn spawn_local_and_state_closed() {
         rsgdll::sleep(Duration::from_millis(2)).await;
         lua.lua()?.set_global("ticked", true)
     });
-    pump_until(&lua, || common::exec(l, "return tostring(ticked)").unwrap() == "true");
+    pump_until(&lua, || {
+        common::exec(l, "return tostring(ticked)").unwrap() == "true"
+    });
     let h = lua.handle();
     // A blocked caller is released with StateClosed when the state closes.
     let waiting = std::thread::spawn(move || h.call_blocking(|_| Ok(1)));

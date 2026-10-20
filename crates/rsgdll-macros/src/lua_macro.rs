@@ -54,9 +54,13 @@ fn rebuild(ts: TokenStream, src: &mut String, spans: &mut Vec<(usize, Span)>) ->
                 }
             }
             TokenTree::Punct(p) => {
-                let next_dash = matches!(it.peek(), Some(TokenTree::Punct(n)) if n.as_char() == '-');
+                let next_dash =
+                    matches!(it.peek(), Some(TokenTree::Punct(n)) if n.as_char() == '-');
                 if p.as_char() == '-' && p.spacing() == Spacing::Joint && next_dash {
-                    return Err(syn::Error::new(p.span(), "`--` comments are not available in the token form; use the string form `lua!(lua, r#\"...\"#)`"));
+                    return Err(syn::Error::new(
+                        p.span(),
+                        "`--` comments are not available in the token form; use the string form `lua!(lua, r#\"...\"#)`",
+                    ));
                 }
                 spans.push((src.len(), p.span()));
                 src.push(p.as_char());
@@ -71,9 +75,13 @@ fn rebuild(ts: TokenStream, src: &mut String, spans: &mut Vec<(usize, Span)>) ->
             }
             TokenTree::Literal(l) => {
                 let text = l.to_string();
-                let ok = text.starts_with('"') || text.chars().next().is_some_and(|c| c.is_ascii_digit());
+                let ok = text.starts_with('"')
+                    || text.chars().next().is_some_and(|c| c.is_ascii_digit());
                 if !ok {
-                    return Err(syn::Error::new(l.span(), "only double-quoted strings and plain numbers work in the token form; use the string form `lua!(lua, r#\"...\"#)`"));
+                    return Err(syn::Error::new(
+                        l.span(),
+                        "only double-quoted strings and plain numbers work in the token form; use the string form `lua!(lua, r#\"...\"#)`",
+                    ));
                 }
                 spans.push((src.len(), l.span()));
                 src.push_str(&text);
@@ -87,29 +95,38 @@ fn rebuild(ts: TokenStream, src: &mut String, spans: &mut Vec<(usize, Span)>) ->
 /// Rust type -> Lua class name known to the API database.
 fn lua_class(ty: &syn::Type) -> Option<String> {
     let id = crate::util::last_ident(ty)?;
-    Some(match id.as_str() {
-        "Player" | "PlayerRef" => "Player",
-        "Entity" | "EntityRef" => "Entity",
-        "Vector" => "Vector",
-        "Angle" => "Angle",
-        _ => return None,
-    }.to_owned())
+    Some(
+        match id.as_str() {
+            "Player" | "PlayerRef" => "Player",
+            "Entity" | "EntityRef" => "Entity",
+            "Vector" => "Vector",
+            "Angle" => "Angle",
+            _ => return None,
+        }
+        .to_owned(),
+    )
 }
 
 impl Parse for LuaInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let handle: Expr = input.parse()?;
         input.parse::<Token![,]>()?;
-        let unchecked = input.peek(Ident) && input.peek2(Token![,]) && input.fork().parse::<Ident>().is_ok_and(|i| i == "unchecked");
+        let unchecked = input.peek(Ident)
+            && input.peek2(Token![,])
+            && input
+                .fork()
+                .parse::<Ident>()
+                .is_ok_and(|i| i == "unchecked");
         if unchecked {
             input.parse::<Ident>()?;
             input.parse::<Token![,]>()?;
         }
         // String form: a single literal followed by end or `, name = expr`.
-        let is_str = input.peek(LitStr) && (input.peek2(Token![,]) || {
-            let f = input.fork();
-            f.parse::<LitStr>().is_ok() && f.is_empty()
-        });
+        let is_str = input.peek(LitStr)
+            && (input.peek2(Token![,]) || {
+                let f = input.fork();
+                f.parse::<LitStr>().is_ok() && f.is_empty()
+            });
         let (body, named) = match is_str {
             true => {
                 let lit: LitStr = input.parse()?;
@@ -136,7 +153,13 @@ impl Parse for LuaInput {
             }
         };
         let (named, hints) = named;
-        Ok(LuaInput { handle, unchecked, body, named, hints })
+        Ok(LuaInput {
+            handle,
+            unchecked,
+            body,
+            named,
+            hints,
+        })
     }
 }
 
@@ -153,7 +176,11 @@ impl LuaInput {
         match &self.body {
             // Sub-spans of literals need nightly; stable points at the whole literal.
             Body::Str(l) => l.span(),
-            Body::Tokens(_, spans) => spans.iter().rev().find(|(o, _)| *o <= offset).map_or_else(Span::call_site, |(_, s)| *s),
+            Body::Tokens(_, spans) => spans
+                .iter()
+                .rev()
+                .find(|(o, _)| *o <= offset)
+                .map_or_else(Span::call_site, |(_, s)| *s),
         }
     }
 }
@@ -166,13 +193,29 @@ pub fn lua(input: LuaInput) -> syn::Result<TokenStream> {
         true => format!("return {src}"),
         false => src.clone(),
     };
-    let (rewritten, captures) = rsgdll_luacheck::rewrite(&runnable).map_err(|d| syn::Error::new(input.span_at(d.span.start), d.msg))?;
+    let (rewritten, captures) = rsgdll_luacheck::rewrite(&runnable)
+        .map_err(|d| syn::Error::new(input.span_at(d.span.start), d.msg))?;
     // Proc macros cannot see variable types; typed named captures (`ply: Player = p`) give
     // the class for method checks, plus known-return call chains (spec §9.2 check 7).
-    let class = |c: &String| input.hints.iter().find(|(n, _)| n == c).map(|(_, t)| t.clone());
-    let ctx = Ctx { captures: captures.iter().map(|c| (c.clone(), class(c))).collect(), ..Ctx::default() };
+    let class = |c: &String| {
+        input
+            .hints
+            .iter()
+            .find(|(n, _)| n == c)
+            .map(|(_, t)| t.clone())
+    };
+    let ctx = Ctx {
+        captures: captures.iter().map(|c| (c.clone(), class(c))).collect(),
+        ..Ctx::default()
+    };
     let diags = rsgdll_luacheck::check(&runnable, rsgdll_apidb::db(), &ctx);
-    let silenced = |k: &Kind| input.unchecked && matches!(k, Kind::UnknownMember | Kind::Arity | Kind::Realm(_) | Kind::Deprecated);
+    let silenced = |k: &Kind| {
+        input.unchecked
+            && matches!(
+                k,
+                Kind::UnknownMember | Kind::Arity | Kind::Realm(_) | Kind::Deprecated
+            )
+    };
     let mut errors = Vec::new();
     let mut extra = Vec::new();
     diags.iter().filter(|d| !silenced(&d.kind)).for_each(|d| {
@@ -184,7 +227,11 @@ pub fn lua(input: LuaInput) -> syn::Result<TokenStream> {
             Body::Tokens(..) => format!("lua!: {}", d.msg),
         };
         match (&d.kind, d.severity) {
-            (Kind::Realm(r), _) => extra.push(realm_guard(span, r.as_str(), d.msg.split(" is ").next().unwrap_or(&d.msg))),
+            (Kind::Realm(r), _) => extra.push(realm_guard(
+                span,
+                r.as_str(),
+                d.msg.split(" is ").next().unwrap_or(&d.msg),
+            )),
             (_, Severity::Error) => errors.push(syn::Error::new(span, msg)),
             (_, Severity::Warning) => extra.push(warning(span, &msg)),
         }
@@ -195,7 +242,8 @@ pub fn lua(input: LuaInput) -> syn::Result<TokenStream> {
     }) {
         return Err(e);
     }
-    let lua51 = rsgdll_luacheck::desugar::desugar(&rewritten).map_err(|d| syn::Error::new(input.span_at(0), d.msg))?;
+    let lua51 = rsgdll_luacheck::desugar::desugar(&rewritten)
+        .map_err(|d| syn::Error::new(input.span_at(0), d.msg))?;
     let exprs: Vec<TokenStream> = captures
         .iter()
         .map(|c| match input.named.iter().find(|(n, _)| n == c) {
@@ -235,7 +283,10 @@ mod tests {
         let ts: TokenStream = "print(\"a\" .. $name, x ~= y, #t, a::b)".parse().unwrap();
         let (mut src, mut spans) = (String::new(), Vec::new());
         rebuild(ts, &mut src, &mut spans).unwrap();
-        assert!(src.contains("..") && src.contains("~=") && src.contains("$name") && src.contains("::"), "{src}");
+        assert!(
+            src.contains("..") && src.contains("~=") && src.contains("$name") && src.contains("::"),
+            "{src}"
+        );
         let bad: TokenStream = "x -- y".parse().unwrap();
         assert!(rebuild(bad, &mut String::new(), &mut Vec::new()).is_err());
     }

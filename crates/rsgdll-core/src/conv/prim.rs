@@ -93,7 +93,8 @@ impl IntoLua for f32 {
 /// Lua number -> integer: must be integral and in range.
 pub fn to_int(n: f64, min: i128, max: i128, name: &str) -> Result<i128, ConvError> {
     let ok = n.is_finite() && n.fract() == 0.0 && (n as i128) >= min && (n as i128) <= max;
-    ok.then_some(n as i128).ok_or_else(|| ConvError::new(format!("{name} (integer in range)"), format!("number {n}")))
+    ok.then_some(n as i128)
+        .ok_or_else(|| ConvError::new(format!("{name} (integer in range)"), format!("number {n}")))
 }
 
 /// Integer -> Lua number: errors when `|v| > 2^53` (never silently lossy).
@@ -101,7 +102,11 @@ pub fn from_int(v: i128) -> Result<f64, ConvError> {
     (-MAX_SAFE..=MAX_SAFE)
         .contains(&v)
         .then_some(v as f64)
-        .ok_or_else(|| ConvError::msg(format!("integer {v} exceeds 2^53 and cannot be a Lua number; use #[lua(as_string)]")))
+        .ok_or_else(|| {
+            ConvError::msg(format!(
+                "integer {v} exceeds 2^53 and cannot be a Lua number; use #[lua(as_string)]"
+            ))
+        })
 }
 
 macro_rules! ints {
@@ -141,7 +146,9 @@ impl IntoLua for i128 {
 pub fn string_bytes(lua: &Lua, idx: c_int) -> Result<&[u8], ConvError> {
     let idx = lua.abs(idx);
     match lua.read(idx).tag {
-        LUA_TSTRING => lua.raw_bytes(idx).ok_or_else(|| mismatch(lua, idx, "string")),
+        LUA_TSTRING => lua
+            .raw_bytes(idx)
+            .ok_or_else(|| mismatch(lua, idx, "string")),
         LUA_TNUMBER => {
             // Coerce on a copy and write it back so the slot (and its bytes) stay alive.
             let g = lua.guard();
@@ -149,7 +156,8 @@ pub fn string_bytes(lua: &Lua, idx: c_int) -> Result<&[u8], ConvError> {
             // SAFETY: frame result (the string) is on top; replace never raises.
             unsafe { (lua.api().lua_replace)(lua.raw(), idx) };
             drop(g);
-            lua.raw_bytes(idx).ok_or_else(|| mismatch(lua, idx, "string"))
+            lua.raw_bytes(idx)
+                .ok_or_else(|| mismatch(lua, idx, "string"))
         }
         _ => Err(mismatch(lua, idx, "string")),
     }
@@ -241,7 +249,10 @@ pub struct AsString<T>(pub T);
 impl<T: std::str::FromStr> FromLua for AsString<T> {
     fn from_lua(lua: &Lua, idx: c_int) -> Result<Self, ConvError> {
         let s = String::from_lua(lua, idx)?;
-        s.trim().parse().map(AsString).map_err(|_| ConvError::new("integer string", format!("\"{s}\"")))
+        s.trim()
+            .parse()
+            .map(AsString)
+            .map_err(|_| ConvError::new("integer string", format!("\"{s}\"")))
     }
 }
 

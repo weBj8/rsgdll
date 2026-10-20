@@ -21,7 +21,8 @@ impl Repeat {
 }
 
 fn timer_fn(lua: &Lua, name: &str) -> Result<LuaFunction> {
-    lua.global::<Option<LuaFunction>>(&format!("timer.{name}"))?.ok_or_else(|| anyhow!("timer.{name} is not available"))
+    lua.global::<Option<LuaFunction>>(&format!("timer.{name}"))?
+        .ok_or_else(|| anyhow!("timer.{name} is not available"))
 }
 
 fn closure(lua: &Lua, f: impl Fn(&Lua) -> Result<()> + 'static) -> Result<LuaFunction> {
@@ -29,7 +30,13 @@ fn closure(lua: &Lua, f: impl Fn(&Lua) -> Result<()> + 'static) -> Result<LuaFun
 }
 
 /// `timer.Create(name, delay, reps, f)`.
-pub fn create(lua: &Lua, name: &str, delay: Duration, repeat: Repeat, f: impl Fn(&Lua) -> Result<()> + 'static) -> Result<()> {
+pub fn create(
+    lua: &Lua,
+    name: &str,
+    delay: Duration,
+    repeat: Repeat,
+    f: impl Fn(&Lua) -> Result<()> + 'static,
+) -> Result<()> {
     let cb = closure(lua, f)?;
     timer_fn(lua, "Create")?.call::<_, ()>(lua, (name, delay.as_secs_f64(), repeat.reps(), cb))?;
     tracked::timer(lua, name);
@@ -44,7 +51,9 @@ pub fn simple(lua: &Lua, delay: Duration, f: impl Fn(&Lua) -> Result<()> + 'stat
 
 /// `timer.Adjust(name, delay, reps)`; returns whether the timer exists.
 pub fn adjust(lua: &Lua, name: &str, delay: Duration, repeat: Repeat) -> Result<bool> {
-    timer_fn(lua, "Adjust")?.call::<_, Option<bool>>(lua, (name, delay.as_secs_f64(), repeat.reps())).map(|b| b.unwrap_or(false))
+    timer_fn(lua, "Adjust")?
+        .call::<_, Option<bool>>(lua, (name, delay.as_secs_f64(), repeat.reps()))
+        .map(|b| b.unwrap_or(false))
 }
 
 pub fn remove(lua: &Lua, name: &str) -> Result<()> {
@@ -54,19 +63,27 @@ pub fn remove(lua: &Lua, name: &str) -> Result<()> {
 }
 
 pub fn exists(lua: &Lua, name: &str) -> Result<bool> {
-    timer_fn(lua, "Exists")?.call::<_, Option<bool>>(lua, name).map(|b| b.unwrap_or(false))
+    timer_fn(lua, "Exists")?
+        .call::<_, Option<bool>>(lua, name)
+        .map(|b| b.unwrap_or(false))
 }
 
 pub fn pause(lua: &Lua, name: &str) -> Result<bool> {
-    timer_fn(lua, "Pause")?.call::<_, Option<bool>>(lua, name).map(|b| b.unwrap_or(false))
+    timer_fn(lua, "Pause")?
+        .call::<_, Option<bool>>(lua, name)
+        .map(|b| b.unwrap_or(false))
 }
 
 pub fn unpause(lua: &Lua, name: &str) -> Result<bool> {
-    timer_fn(lua, "UnPause")?.call::<_, Option<bool>>(lua, name).map(|b| b.unwrap_or(false))
+    timer_fn(lua, "UnPause")?
+        .call::<_, Option<bool>>(lua, name)
+        .map(|b| b.unwrap_or(false))
 }
 
 pub fn toggle(lua: &Lua, name: &str) -> Result<bool> {
-    timer_fn(lua, "Toggle")?.call::<_, Option<bool>>(lua, name).map(|b| b.unwrap_or(false))
+    timer_fn(lua, "Toggle")?
+        .call::<_, Option<bool>>(lua, name)
+        .map(|b| b.unwrap_or(false))
 }
 
 /// Parses `"1s"`, `"500ms"`, `"2m"`, `"1.5s"` (used by `#[rsgdll::timer]`).

@@ -46,7 +46,9 @@ impl LuaFunction {
         s.reference_id(&self.0)?;
         let n = args.into_lua_multi(&mut s)?;
         s.op(Op::Call(n, LUA_MULTRET), -n - 1);
-        let r = s.finish().and_then(|(first, count)| R::from_lua_multi(lua, first, count).map_err(Error::from));
+        let r = s
+            .finish()
+            .and_then(|(first, count)| R::from_lua_multi(lua, first, count).map_err(Error::from));
         drop(g);
         r
     }
@@ -66,7 +68,11 @@ pub fn returns<R: IntoLuaMulti>(lua: &Lua, entry: c_int, path: &str, r: R) -> Ou
     let staged = r.into_lua_multi(&mut s);
     match staged.map_err(Error::from).and_then(|_| s.finish()) {
         Ok((_, n)) => Outcome::Ok(n),
-        Err(e) => Outcome::Err(trampoline::format_error(lua.module_name(), path, &e.message())),
+        Err(e) => Outcome::Err(trampoline::format_error(
+            lua.module_name(),
+            path,
+            &e.message(),
+        )),
     }
 }
 
@@ -76,7 +82,10 @@ pub fn bad_argument(lua: &Lua, path: &str, n: c_int, e: &ConvError) -> Outcome {
         (true, false) => format!("{} expected, got {}", e.expected, e.got),
         _ => e.to_string(),
     };
-    Outcome::Err(format!("[{}] bad argument #{n} to '{path}' ({detail})", lua.module_name()))
+    Outcome::Err(format!(
+        "[{}] bad argument #{n} to '{path}' ({detail})",
+        lua.module_name()
+    ))
 }
 
 unsafe extern "C-unwind" fn dispatch(l: *mut lua_State) -> c_int {
@@ -119,7 +128,8 @@ unsafe extern "C-unwind" fn make_closure(l: *mut lua_State, data: *mut c_void) {
     let a = rsgdll_sys::api();
     unsafe {
         if let Some(init) = data.cast::<Init>().as_mut() {
-            let ud = (a.lua_newuserdata)(l, core::mem::size_of::<*mut Boxed>()).cast::<*mut Boxed>();
+            let ud =
+                (a.lua_newuserdata)(l, core::mem::size_of::<*mut Boxed>()).cast::<*mut Boxed>();
             ud.write(init.boxed);
             (a.lua_rawgeti)(l, LUA_REGISTRYINDEX, init.meta);
             (a.lua_setmetatable)(l, -2);
@@ -132,12 +142,22 @@ unsafe extern "C-unwind" fn make_closure(l: *mut lua_State, data: *mut c_void) {
 /// Metatable with `__gc` for closure boxes, created once per state.
 fn closure_meta(lua: &Lua) -> Result<c_int> {
     let rt = lua.runtime().clone();
-    let cached = rt.ext::<std::cell::Cell<c_int>>("closure_meta", || std::cell::Cell::new(LUA_NOREF));
+    let cached =
+        rt.ext::<std::cell::Cell<c_int>>("closure_meta", || std::cell::Cell::new(LUA_NOREF));
     match cached.get() {
         LUA_NOREF => {
             let g = lua.guard();
             let mut out = [Raw::default()];
-            lua.protect(&[], &[Op::NewTable(0, 1), Op::PushCClosure(gc, 0), Op::SetField(-2, c"__gc".as_ptr()), Op::Ref(0)], &mut out)?;
+            lua.protect(
+                &[],
+                &[
+                    Op::NewTable(0, 1),
+                    Op::PushCClosure(gc, 0),
+                    Op::SetField(-2, c"__gc".as_ptr()),
+                    Op::Ref(0),
+                ],
+                &mut out,
+            )?;
             drop(g);
             cached.set(out[0].num as c_int);
             Ok(cached.get())
@@ -149,8 +169,18 @@ fn closure_meta(lua: &Lua) -> Result<c_int> {
 /// Pushes a raw closure (`f` handles the whole call) onto the stack.
 pub fn push_raw_closure(lua: &Lua, f: Boxed) -> Result<()> {
     let meta = closure_meta(lua)?;
-    let mut init = Init { boxed: Box::into_raw(Box::new(f)), meta, taken: false };
-    let r = lua.run(&[], &[Op::CheckStack(4), Op::Raw(make_closure, crate::state::light_mut(&mut init).cast())]);
+    let mut init = Init {
+        boxed: Box::into_raw(Box::new(f)),
+        meta,
+        taken: false,
+    };
+    let r = lua.run(
+        &[],
+        &[
+            Op::CheckStack(4),
+            Op::Raw(make_closure, crate::state::light_mut(&mut init).cast()),
+        ],
+    );
     if !init.taken {
         // SAFETY: never handed to Lua.
         drop(unsafe { Box::from_raw(init.boxed) });
@@ -172,7 +202,11 @@ where
             Err(e) => bad_argument(lua, &path, 1, &e),
             Ok(args) => match f(lua, args) {
                 Ok(r) => returns(lua, count, &path, r),
-                Err(e) => Outcome::Err(trampoline::format_error(lua.module_name(), &path, &e.lua_message())),
+                Err(e) => Outcome::Err(trampoline::format_error(
+                    lua.module_name(),
+                    &path,
+                    &e.lua_message(),
+                )),
             },
         }
     });
@@ -196,7 +230,8 @@ impl Lua {
 
     /// `print(...)` through Lua's `print` (GMod console).
     pub fn print(&self, msg: impl std::fmt::Display) -> Result<()> {
-        self.global::<LuaFunction>("print")?.call::<_, ()>(self, msg.to_string())
+        self.global::<LuaFunction>("print")?
+            .call::<_, ()>(self, msg.to_string())
     }
 
     /// Reads a global (dotted paths walk tables: `"ents.FindByClass"`).
@@ -213,10 +248,15 @@ impl Lua {
             // A nil intermediate yields nil (like `a and a.b`), so optional lookups work.
             match self.read(t).tag {
                 LUA_TNIL | LUA_TNONE => Ok(Some(t)),
-                _ => super::table::fetch_field(self, t, seg).map(Some).map_err(Error::from),
+                _ => super::table::fetch_field(self, t, seg)
+                    .map(Some)
+                    .map_err(Error::from),
             }
         });
-        let out = r.and_then(|i| T::from_lua(self, i.unwrap_or(0)).map_err(|e| Error::from(e).context(format!("global '{path}'"))));
+        let out = r.and_then(|i| {
+            T::from_lua(self, i.unwrap_or(0))
+                .map_err(|e| Error::from(e).context(format!("global '{path}'")))
+        });
         drop(g);
         out
     }
@@ -225,7 +265,9 @@ impl Lua {
     pub fn set_global<T: IntoLua>(&self, path: &str, v: T) -> Result<()> {
         let g = self.guard();
         let segs: Vec<&str> = path.split('.').collect();
-        let (last, parents) = segs.split_last().ok_or_else(|| crate::anyhow!("empty global path"))?;
+        let (last, parents) = segs
+            .split_last()
+            .ok_or_else(|| crate::anyhow!("empty global path"))?;
         self.run(&[], &[Op::PushGlobals])?;
         parents.iter().try_for_each(|seg| -> Result<()> {
             let t = self.top();
@@ -240,7 +282,9 @@ impl Lua {
                     s.finish()?;
                     let key = (*seg).to_owned();
                     let mut s = Stage::with_inputs(self, &[t, -1]);
-                    s.op(Op::PushStr(key.as_ptr(), key.len()), 1).op(Op::PushValue(2), 1).op(Op::SetTable(1), -2);
+                    s.op(Op::PushStr(key.as_ptr(), key.len()), 1)
+                        .op(Op::PushValue(2), 1)
+                        .op(Op::SetTable(1), -2);
                     // The new table stays on top as the next parent.
                     s.finish().map(|_| ())
                 }
@@ -268,7 +312,11 @@ pub fn create_raw(
         match f(lua, count) {
             Err((n, e)) => bad_argument(lua, &path, n, &e),
             Ok(Ok(())) => Outcome::Ok(0),
-            Ok(Err(e)) => Outcome::Err(trampoline::format_error(lua.module_name(), &path, &e.lua_message())),
+            Ok(Err(e)) => Outcome::Err(trampoline::format_error(
+                lua.module_name(),
+                &path,
+                &e.lua_message(),
+            )),
         }
     });
     let g = lua.guard();

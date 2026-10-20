@@ -39,13 +39,18 @@ mod abi {
 unsafe fn run_impl(this: *mut c_void, base: *mut c_void) {
     // SAFETY: `this` is the Box leaked by `add`; GMod calls Run exactly once.
     let call = unsafe { Box::from_raw(this.cast::<Call>()) };
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || (call.run)(base.cast())));
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        (call.run)(base.cast())
+    }));
     if r.is_err() {
         rsgdll_sys::tier0::warning("rsgdll: threaded call panicked\n");
     }
 }
 
-static VTABLE: ILuaThreadedCallVTable = ILuaThreadedCallVTable { init: abi::init as vfn!((*mut c_void)), run: abi::run as vfn!((*mut c_void, *mut c_void)) };
+static VTABLE: ILuaThreadedCallVTable = ILuaThreadedCallVTable {
+    init: abi::init as vfn!((*mut c_void)),
+    run: abi::run as vfn!((*mut c_void, *mut c_void)),
+};
 
 /// Whether threaded-call wake-ups are enabled (probe-gated).
 pub fn enabled() -> bool {
@@ -55,7 +60,10 @@ pub fn enabled() -> bool {
 /// Queues `f` to run on the main thread via `ILuaInterface::AddThreadedCall`.
 pub fn add(lua: &Lua, f: impl FnOnce(*mut ILuaBase) + Send + 'static) -> Result<()> {
     let iface = lua.interface()?.raw();
-    let call = Box::into_raw(Box::new(Call { vtable: &VTABLE, run: Box::new(f) }));
+    let call = Box::into_raw(Box::new(Call {
+        vtable: &VTABLE,
+        run: Box::new(f),
+    }));
     // SAFETY: AddThreadedCall takes ownership semantics of the pointer until Run.
     let _ = unsafe { ((*iface).vt().add_threaded_call)(iface.cast(), call.cast()) };
     Ok(())
@@ -71,7 +79,10 @@ pub unsafe fn add_raw(iface: usize, f: impl FnOnce(*mut ILuaBase) + Send + 'stat
     if iface.is_null() {
         return Err(Error::msg("null ILuaInterface"));
     }
-    let call = Box::into_raw(Box::new(Call { vtable: &VTABLE, run: Box::new(f) }));
+    let call = Box::into_raw(Box::new(Call {
+        vtable: &VTABLE,
+        run: Box::new(f),
+    }));
     let _ = unsafe { ((*iface).vt().add_threaded_call)(iface.cast(), call.cast()) };
     Ok(())
 }
@@ -87,10 +98,17 @@ pub fn probe(lua: &Lua, n: usize) -> Result<()> {
         .map(|_| {
             std::thread::spawn(move || {
                 // SAFETY: this is the unverified call the probe exists to test.
-                unsafe { add_raw(iface, |_| { PROBE_RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }) }
+                unsafe {
+                    add_raw(iface, |_| {
+                        PROBE_RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    })
+                }
             })
         })
         .collect::<Vec<_>>()
         .into_iter()
-        .try_for_each(|t| t.join().unwrap_or_else(|_| Err(Error::msg("probe thread panicked"))))
+        .try_for_each(|t| {
+            t.join()
+                .unwrap_or_else(|_| Err(Error::msg("probe thread panicked")))
+        })
 }

@@ -21,7 +21,9 @@ pub fn fetch(lua: &Lua, table: c_int, key_ops: &[Op]) -> Result<c_int, ConvError
         .chain(key_ops.iter().copied())
         .chain([Op::GetTable(1), Op::Remove(1)])
         .collect();
-    lua.protect(&[table], &ops, &mut []).map(|(first, _)| first).map_err(lua_err)
+    lua.protect(&[table], &ops, &mut [])
+        .map(|(first, _)| first)
+        .map_err(lua_err)
 }
 
 /// `t[i]` for a sequence index.
@@ -37,7 +39,9 @@ pub fn fetch_field(lua: &Lua, table: c_int, name: &str) -> Result<c_int, ConvErr
 /// Converts `t[name]`, adding `name` to the error path.
 pub fn field<T: FromLua>(lua: &Lua, table: c_int, name: &str) -> Result<T, ConvError> {
     let g = lua.guard();
-    let r = fetch_field(lua, table, name).and_then(|i| T::from_lua(lua, i)).map_err(|e| e.at(name));
+    let r = fetch_field(lua, table, name)
+        .and_then(|i| T::from_lua(lua, i))
+        .map_err(|e| e.at(name));
     drop(g);
     r
 }
@@ -60,7 +64,8 @@ pub fn expect_table(lua: &Lua, idx: c_int) -> Result<c_int, ConvError> {
 
 /// `#t` (`lua_objlen`; tables have no `__len` in Lua 5.1).
 pub fn len(lua: &Lua, idx: c_int) -> Result<usize, ConvError> {
-    lua.read_ops::<1>(&[idx], &[Op::Len(1, 0), Op::Pop(1)]).map(|[r]| r.len)
+    lua.read_ops::<1>(&[idx], &[Op::Len(1, 0), Op::Pop(1)])
+        .map(|[r]| r.len)
 }
 
 /// Reads `1..=#t`; a nil hole is an error.
@@ -81,7 +86,11 @@ pub fn sequence<T: FromLua>(lua: &Lua, idx: c_int) -> Result<Vec<T>, ConvError> 
 
 /// Iterates all pairs with `lua_next`, calling `f(key_idx, value_idx)` for each.
 /// Keys are converted from a copy so `lua_tolstring` never mutates the iteration key.
-pub fn pairs(lua: &Lua, idx: c_int, mut f: impl FnMut(c_int, c_int) -> Result<(), ConvError>) -> Result<(), ConvError> {
+pub fn pairs(
+    lua: &Lua,
+    idx: c_int,
+    mut f: impl FnMut(c_int, c_int) -> Result<(), ConvError>,
+) -> Result<(), ConvError> {
     let t = expect_table(lua, idx)?;
     let g = lua.guard();
     let a = lua.api();
@@ -90,7 +99,8 @@ pub fn pairs(lua: &Lua, idx: c_int, mut f: impl FnMut(c_int, c_int) -> Result<()
     let r = std::iter::repeat(()).try_for_each(|()| {
         let key = lua.top();
         let mut out = [Raw::default()];
-        lua.protect(&[t, key], &[Op::Next(1, 0), Op::Remove(1)], &mut out).map_err(lua_err)?;
+        lua.protect(&[t, key], &[Op::Next(1, 0), Op::Remove(1)], &mut out)
+            .map_err(lua_err)?;
         // SAFETY: removing the old key copy never raises.
         unsafe { (a.lua_remove)(lua.raw(), key) };
         match out[0].num != 0.0 {
@@ -129,17 +139,26 @@ impl<T: FromLua> FromLua for VecDeque<T> {
 
 impl<T: FromLua, const N: usize> FromLua for [T; N] {
     fn from_lua(lua: &Lua, idx: c_int) -> Result<Self, ConvError> {
-        sequence(lua, idx)?
-            .try_into()
-            .map_err(|v: Vec<T>| ConvError::new(format!("sequence of length {N}"), format!("length {}", v.len())))
+        sequence(lua, idx)?.try_into().map_err(|v: Vec<T>| {
+            ConvError::new(
+                format!("sequence of length {N}"),
+                format!("length {}", v.len()),
+            )
+        })
     }
 }
 
-fn collect_map<K: FromLua, V: FromLua, M: Default + Extend<(K, V)>>(lua: &Lua, idx: c_int) -> Result<M, ConvError> {
+fn collect_map<K: FromLua, V: FromLua, M: Default + Extend<(K, V)>>(
+    lua: &Lua,
+    idx: c_int,
+) -> Result<M, ConvError> {
     let mut m = M::default();
     pairs(lua, idx, |k, v| {
         let key = K::from_lua(lua, k)?;
-        let seg = lua.raw_bytes(k).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_else(|| "key".into());
+        let seg = lua
+            .raw_bytes(k)
+            .map(|b| String::from_utf8_lossy(b).into_owned())
+            .unwrap_or_else(|| "key".into());
         let val = V::from_lua(lua, v).map_err(|e| e.at(seg))?;
         m.extend([(key, val)]);
         Ok(())
@@ -147,7 +166,9 @@ fn collect_map<K: FromLua, V: FromLua, M: Default + Extend<(K, V)>>(lua: &Lua, i
     .map(|()| m)
 }
 
-impl<K: FromLua + Eq + Hash, V: FromLua, S: std::hash::BuildHasher + Default> FromLua for HashMap<K, V, S> {
+impl<K: FromLua + Eq + Hash, V: FromLua, S: std::hash::BuildHasher + Default> FromLua
+    for HashMap<K, V, S>
+{
     fn from_lua(lua: &Lua, idx: c_int) -> Result<Self, ConvError> {
         collect_map(lua, idx)
     }
@@ -167,7 +188,10 @@ impl<K: FromLua + Eq + Hash, V: FromLua> FromLua for indexmap::IndexMap<K, V> {
 }
 
 /// Stages a sequence table.
-pub fn push_seq<T: IntoLua>(s: &mut Stage<'_>, items: impl ExactSizeIterator<Item = T>) -> Result<(), ConvError> {
+pub fn push_seq<T: IntoLua>(
+    s: &mut Stage<'_>,
+    items: impl ExactSizeIterator<Item = T>,
+) -> Result<(), ConvError> {
     s.table(items.len(), 0);
     items.enumerate().try_for_each(|(i, v)| {
         v.into_lua(s).map_err(|e| e.at((i + 1).to_string()))?;
@@ -177,7 +201,10 @@ pub fn push_seq<T: IntoLua>(s: &mut Stage<'_>, items: impl ExactSizeIterator<Ite
 }
 
 /// Stages a map table.
-pub fn push_map<K: IntoLua, V: IntoLua>(s: &mut Stage<'_>, items: impl ExactSizeIterator<Item = (K, V)>) -> Result<(), ConvError> {
+pub fn push_map<K: IntoLua, V: IntoLua>(
+    s: &mut Stage<'_>,
+    items: impl ExactSizeIterator<Item = (K, V)>,
+) -> Result<(), ConvError> {
     s.table(0, items.len());
     items.into_iter().try_for_each(|(k, v)| {
         k.into_lua(s)?;
@@ -188,7 +215,11 @@ pub fn push_map<K: IntoLua, V: IntoLua>(s: &mut Stage<'_>, items: impl ExactSize
 }
 
 /// Stages `t[name] = v` for the table on top (derive helper).
-pub fn push_field<T: IntoLua>(s: &mut Stage<'_>, name: &'static str, v: T) -> Result<(), ConvError> {
+pub fn push_field<T: IntoLua>(
+    s: &mut Stage<'_>,
+    name: &'static str,
+    v: T,
+) -> Result<(), ConvError> {
     s.op(Op::PushStr(name.as_ptr(), name.len()), 1);
     v.into_lua(s).map_err(|e| e.at(name))?;
     s.raw_set();

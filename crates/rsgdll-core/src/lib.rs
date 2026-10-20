@@ -19,9 +19,9 @@ pub mod state;
 pub mod tracked;
 pub mod trampoline;
 
-pub use error::{ConvError, Context, Error, ErrorKind, Result, set_backtrace};
-pub use lua::{Lua, StackGuard};
-pub use refs::LuaRef;
 pub use conv::*;
-pub use realm::Realm;
+pub use error::{Context, ConvError, Error, ErrorKind, Result, set_backtrace};
 pub use linkme;
+pub use lua::{Lua, StackGuard};
+pub use realm::Realm;
+pub use refs::LuaRef;
