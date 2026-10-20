@@ -139,7 +139,12 @@ impl LuaInput {
 pub fn lua(input: LuaInput) -> syn::Result<TokenStream> {
     let rt = rt();
     let src = input.source();
-    let (rewritten, captures) = rsgdll_luacheck::rewrite(&src).map_err(|d| syn::Error::new(input.span_at(d.span.start), d.msg))?;
+    // An expression chunk returns its value (`let n: i32 = lua!(lua, #player.GetAll())?`).
+    let runnable = match rsgdll_luacheck::is_expression(&src) {
+        true => format!("return {src}"),
+        false => src.clone(),
+    };
+    let (rewritten, captures) = rsgdll_luacheck::rewrite(&runnable).map_err(|d| syn::Error::new(input.span_at(d.span.start), d.msg))?;
     // shortcut: capture Rust types are invisible to a proc macro, so method checks only
     // apply to known-return calls; upgrade by accepting `name: Type = expr` hints.
     let ctx = Ctx { captures: captures.iter().map(|c| (c.clone(), None)).collect(), ..Ctx::default() };

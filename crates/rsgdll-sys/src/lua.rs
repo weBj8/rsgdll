@@ -127,7 +127,6 @@ lua_api! {
     lua_error: fn(*mut lua_State) -> c_int;
     lua_next: fn(*mut lua_State, c_int) -> c_int;
     lua_concat: fn(*mut lua_State, c_int);
-    lua_resume: fn(*mut lua_State, c_int) -> c_int;
     lua_status: fn(*mut lua_State) -> c_int;
     lua_gc: fn(*mut lua_State, c_int, c_int) -> c_int;
     lua_close: fn(*mut lua_State);

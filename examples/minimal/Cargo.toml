@@ -13,4 +13,4 @@ client = []
 menu = []
 
 [dependencies]
-rsgdll.workspace = true
+rsgdll = { workspace = true, features = ["backtrace"] }

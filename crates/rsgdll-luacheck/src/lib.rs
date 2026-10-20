@@ -362,6 +362,13 @@ pub fn rewrite(src: &str) -> Result<(String, Vec<String>), Diagnostic> {
     Ok((header + &body, names))
 }
 
+/// Whether the whole chunk is one expression list (`GetHostName()`, `#player.GetAll()`),
+/// so `lua!` can return its value like an expression.
+pub fn is_expression(src: &str) -> bool {
+    let wrapped = format!("return {src}");
+    lexer::lex(&wrapped).is_ok_and(|t| parser::parse(&t).is_ok())
+}
+
 /// Byte offset -> (line, column), both 0-based.
 pub fn line_col(src: &str, offset: usize) -> (usize, usize) {
     let before = &src[..offset.min(src.len())];
@@ -430,6 +437,15 @@ mod tests {
         let d = check("local x = = 1", rsgdll_apidb::db(), &Ctx::default());
         assert_eq!(d[0].kind, Kind::Syntax);
         assert_eq!(line_col("a\nbc", 3), (1, 1));
+    }
+
+    #[test]
+    fn expression_chunks() {
+        assert!(is_expression("GetHostName()"));
+        assert!(is_expression("#player.GetAll(), $x"));
+        assert!(!is_expression("local x = 1 return x"));
+        assert!(!is_expression("a() b()"));
+        assert!(!is_expression("return 1"));
     }
 
     #[test]
