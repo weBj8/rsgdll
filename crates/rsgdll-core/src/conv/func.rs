@@ -210,7 +210,11 @@ impl Lua {
                 }
                 Some(t) => t,
             };
-            super::table::fetch_field(self, t, seg).map(Some).map_err(Error::from)
+            // A nil intermediate yields nil (like `a and a.b`), so optional lookups work.
+            match self.read(t).tag {
+                LUA_TNIL | LUA_TNONE => Ok(Some(t)),
+                _ => super::table::fetch_field(self, t, seg).map(Some).map_err(Error::from),
+            }
         });
         let out = r.and_then(|i| T::from_lua(self, i.unwrap_or(0)).map_err(|e| Error::from(e).context(format!("global '{path}'"))));
         drop(g);

@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 rsgdll-sys.workspace = true
 linkme.workspace = true
+async-task.workspace = true
+tokio = { workspace = true, optional = true, features = ["rt-multi-thread"] }
 indexmap = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["std"] }
 
@@ -15,6 +17,7 @@ serde = { workspace = true, optional = true, features = ["std"] }
 backtrace = []
 indexmap = ["dep:indexmap"]
 serde = ["dep:serde"]
+tokio = ["dep:tokio"]
 
 [dev-dependencies]
 libloading.workspace = true

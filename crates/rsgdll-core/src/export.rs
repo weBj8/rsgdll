@@ -73,3 +73,42 @@ pub fn error(lua: &Lua, name: &str, in_module: bool, text: String) -> Outcome {
 pub fn to_error(text: String) -> Error {
     Error::preformatted(text)
 }
+
+/// Calls `cb(nil, values...)` or `cb(err_string)`; a raising callback is logged (spec §10.2).
+fn deliver<R: IntoLuaMulti>(lua: &Lua, cb: &crate::conv::LuaFunction, path: &str, r: crate::Result<R>) {
+    use crate::conv::Stage;
+    use crate::protected::Op;
+    let g = lua.guard();
+    let mut s = Stage::new(lua);
+    let staged = s.reference_id(&cb.0).map(|_| ()).and_then(|()| match r {
+        Ok(v) => {
+            s.nil();
+            v.into_lua_multi(&mut s).map(|n| n + 1)
+        }
+        Err(e) => s.push(trampoline::format_error(lua.module_name(), path, &e.lua_message())).map(|_| 1),
+    });
+    let res = staged.map_err(Error::from).and_then(|n| {
+        s.op(Op::Call(n, 0), -n - 1);
+        s.finish().map(|_| ())
+    });
+    drop(g);
+    if let Err(e) = res {
+        crate::rt::executor::log_error(lua, &format!("[{}] {path} callback: {}", lua.module_name(), e.lua_message()));
+    }
+}
+
+/// Runs an async export's future on the state's executor and delivers the result.
+pub fn spawn_async<R, F>(lua: &Lua, name: &'static str, in_module: bool, cb: crate::conv::LuaFunction, fut: F)
+where
+    R: IntoLuaMulti + 'static,
+    F: std::future::Future<Output = crate::Result<R>> + 'static,
+{
+    let local = crate::rt::LocalLua::new(lua);
+    crate::rt::executor::spawn_future(lua, async move {
+        let r = fut.await;
+        if let Ok(l) = local.lua() {
+            deliver(l, &cb, &path(l, name, in_module), r);
+        }
+    });
+}
+

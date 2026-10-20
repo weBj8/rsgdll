@@ -14,6 +14,7 @@ pub mod module;
 pub mod protected;
 pub mod realm;
 pub mod refs;
+pub mod rt;
 pub mod state;
 pub mod tracked;
 pub mod trampoline;

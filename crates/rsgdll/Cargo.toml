@@ -19,6 +19,7 @@ menu = []
 backtrace = ["rsgdll-core/backtrace"]
 serde = ["rsgdll-core/serde"]
 indexmap = ["rsgdll-core/indexmap"]
+tokio = ["rsgdll-core/tokio"]
 
 [dev-dependencies]
 trybuild.workspace = true
