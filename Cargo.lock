@@ -121,6 +121,9 @@ dependencies = [
 [[package]]
 name = "rsgdll-luacheck"
 version = "0.1.0"
+dependencies = [
+ "rsgdll-apidb",
+]
 
 [[package]]
 name = "rsgdll-macros"

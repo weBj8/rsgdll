@@ -1,5 +1,6 @@
 //! rsgdll developer tasks. Run with `cargo xtask <command>`.
 
+mod apidb;
 mod config;
 mod probe;
 mod vtables;
@@ -10,6 +11,7 @@ fn usage() -> String {
     [
         "usage: cargo xtask <command>",
         "  probe-luajit [lua_shared path...]   record LuaJIT version, symbols, unwinding, GLua syntax",
+        "  gen-apidb [library dir]             regenerate crates/rsgdll-apidb/src/data.txt",
         "  gen-vtables [headers dir]           regenerate crates/rsgdll-sys/src/vtables.rs",
     ]
     .join("\n")
@@ -37,6 +39,18 @@ fn run(args: &[String]) -> Result<(), String> {
                 .iter()
                 .map(|f| probe::probe(f).map(|r| probe::render(&r)))
                 .try_for_each(|r| r.map(|s| println!("{s}\n")))
+        }
+        Some((cmd, rest)) if cmd == "gen-apidb" => {
+            let root = config::workspace_root();
+            let dir = match rest.first() {
+                Some(d) => PathBuf::from(d),
+                None => apidb::fetch(&root)?,
+            };
+            let out = root.join("crates/rsgdll-apidb/src");
+            apidb::generate(&dir)
+                .and_then(|data| std::fs::write(out.join("data.txt"), data).map_err(|e| e.to_string()))
+                .and_then(|()| std::fs::write(out.join("commit.txt"), apidb::COMMIT).map_err(|e| e.to_string()))
+                .map(|()| println!("wrote {}", out.join("data.txt").display()))
         }
         Some((cmd, rest)) if cmd == "gen-vtables" => {
             let root = config::workspace_root();
