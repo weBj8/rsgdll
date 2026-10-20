@@ -2,6 +2,7 @@
 
 mod config;
 mod probe;
+mod vtables;
 
 use std::path::PathBuf;
 
@@ -9,6 +10,7 @@ fn usage() -> String {
     [
         "usage: cargo xtask <command>",
         "  probe-luajit [lua_shared path...]   record LuaJIT version, symbols, unwinding, GLua syntax",
+        "  gen-vtables [headers dir]           regenerate crates/rsgdll-sys/src/vtables.rs",
     ]
     .join("\n")
 }
@@ -35,6 +37,17 @@ fn run(args: &[String]) -> Result<(), String> {
                 .iter()
                 .map(|f| probe::probe(f).map(|r| probe::render(&r)))
                 .try_for_each(|r| r.map(|s| println!("{s}\n")))
+        }
+        Some((cmd, rest)) if cmd == "gen-vtables" => {
+            let root = config::workspace_root();
+            let dir = match rest.first() {
+                Some(d) => PathBuf::from(d),
+                None => vtables::fetch(&root)?,
+            };
+            let out = root.join("crates/rsgdll-sys/src/vtables.rs");
+            vtables::generate(&dir)
+                .and_then(|src| std::fs::write(&out, src).map_err(|e| e.to_string()))
+                .map(|()| println!("wrote {}", out.display()))
         }
         _ => Err(usage()),
     }
