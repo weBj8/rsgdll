@@ -755,10 +755,11 @@ matches GLua exactly. Callbacks are Rust closures; errors follow §7 (raised int
 GMod hook/timer runner, which prints them the normal way).
 
 ```rust
-// hooks (string names: `*_custom`; typed built-ins: §10.4)
-hook::add_custom("PlayerSay", "mymod.chat", |lua, (ply, text): (Option<PlayerRef<'_>>, String)| -> Result<Option<String>> {
-    Ok(text.starts_with("!ping").then(|| "pong".into()))
-})?;
+// hooks (string names with owned args: `*_custom`; borrowed args: a declared marker;
+// typed built-ins: §10.4)
+rsgdll::hook_marker!(Chat = "PlayerSay": (Option<PlayerRef<'a>>, String) -> Option<String>);
+hook::add::<Chat, _>(lua, "mymod.chat", |lua, (ply, text)| Ok(text.starts_with("!ping").then(|| "pong".into())))?;
+hook::add_custom("MyAddon.Event", "id", |lua, (ply, n): (Option<Player>, i32)| Ok(()))?;
 hook::remove("PlayerSay", "mymod.chat")?;
 let r: Option<bool> = hook::run_custom("MyModEvent", (1, "x"))?;
 hook::call_custom("Name", gm_table, args)?;
@@ -984,6 +985,7 @@ One line per decision; the linked section is the source of truth.
 | GLua syntax | `lua!` always desugars GLua to Lua 5.1 at compile time (the fallback), so no per-target probe is needed | 8.3, 15 |
 | Bound symbols | `lua_resume` removed: GMod's linux64 `lua_shared` does not export it (probe intersection rule) | 3, 5.1 |
 | `lua!` capture types | Proc macros cannot see variable types: method checks use typed named captures (`lua!(lua, "...", ply: Player = p)`) and known-return call chains | 8.3, 9.2 |
+| Custom hooks with borrowed args | Stable Rust cannot infer a lifetime-generic arg type from a closure, so `add_custom` takes owned args (`Player`, `Entity`); borrowed `PlayerRef<'a>` args use `hook_marker!` + `hook::add::<M, _>` (chosen by user) | 10.3 |
 | Gate: protected-op overhead | Measured (`cargo test --release -p rsgdll-core --test bench -- --ignored`, linux64): raw push 5 ns, single protected op 56 ns, batch of 8 pushes 211 ns total (26 ns/push). Batching keeps overhead acceptable; API frozen as is | 7.3, 15 |
 | linux64 srcds | Launched with `srcds_run_x64` (`srcds_run` is the 32-bit branch, which loads `_linux` modules) | 12 |
 
