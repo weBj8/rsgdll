@@ -123,7 +123,7 @@ pub fn build(s: &Spec) -> Result<PathBuf, String> {
     }
     let status = cmd
         .args(&sub)
-        .args(["-p", &s.krate, "--target", &target, "--features", &features])
+        .args(["-p", &s.krate, "--target", &target, "--no-default-features", "--features", &features])
         .args(s.release.then_some("--release"))
         .arg("--target-dir")
         .arg(&target_dir)
