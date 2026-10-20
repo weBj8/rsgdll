@@ -1,6 +1,6 @@
 # rsgdll: Garry's Mod binary module framework for Rust
 
-Status: draft spec (research phase, nothing implemented).
+Status: v1 implemented. Verified on linux64 srcds (`cargo xtask test-srcds`); other targets build only. Outcomes of the §15 gates are in §14.
 
 ## 1. Goals
 
@@ -978,6 +978,14 @@ One line per decision; the linked section is the source of truth.
 | Hooks | Typed `add`/`run`/`call::<H>`; string `*_custom`; entity args `Option<XRef>`; closure typing prototype-first | 10.4 |
 | Build | `cargo-zigbuild` old glibc, `cargo-xwin`; `panic = "unwind"` required | 11 |
 | Tests | srcds integration; Windows srcds CI before Windows release; paths via `xtask.toml` | 12 |
+| Gate: `forbid(unsafe_code)` | Passed (trybuild `pass_forbid_unsafe`); generated code has no `unsafe`, `#[unsafe(no_mangle)]` uses mixed-site spans | 1, 15 |
+| Gate: typed hook closures | Passed: `hook::add::<H, _>` with HRTB over GAT compiles and runs | 10.4, 15 |
+| Gate: `AddThreadedCall` from workers | **Failed** on linux64 (`cargo xtask probe-threadedcall` hangs srcds). Fallback: Think-hook wake-up stays the default; threaded calls only with `RSGDLL_THREADED_CALL=1` | 10.2, 15 |
+| GLua syntax | `lua!` always desugars GLua to Lua 5.1 at compile time (the fallback), so no per-target probe is needed | 8.3, 15 |
+| Bound symbols | `lua_resume` removed: GMod's linux64 `lua_shared` does not export it (probe intersection rule) | 3, 5.1 |
+| linux64 srcds | Launched with `srcds_run_x64` (`srcds_run` is the 32-bit branch, which loads `_linux` modules) | 12 |
+| `#[hook(Ident)]` params | Shortcut: params must use the generated arg types exactly (fewer is fine); `HookArgCompat` supertype coercion is not implemented; use the string form for other types | 10.4 |
+| `lua!` method checks | Shortcut: capture Rust types are invisible to the proc macro, so method checks only apply to known-return call chains | 9.2 |
 
 ## 15. Open risks
 
