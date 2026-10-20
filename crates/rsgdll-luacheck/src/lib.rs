@@ -1,0 +1,1 @@
+//! rsgdll-luacheck

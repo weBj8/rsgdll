@@ -1,0 +1,16 @@
+[package]
+name = "rsgdll-macros"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
+rsgdll-luacheck.workspace = true
+rsgdll-apidb.workspace = true
+
+[lib]
+proc-macro = true

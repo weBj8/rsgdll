@@ -1,0 +1,16 @@
+[package]
+name = "showcase"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+server = []
+client = []
+menu = []
+
+[dependencies]
+rsgdll.workspace = true

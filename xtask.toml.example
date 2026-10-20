@@ -1,0 +1,2 @@
+srcds_dir = "/mnt/ssd/gmod_server"
+gmod_client_dir = "/home/user/.local/share/Steam/steamapps/common/GarrysMod"
