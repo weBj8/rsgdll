@@ -123,3 +123,8 @@ pub fn defer_unref(generation: u64, id: c_int) {
 pub fn light<T>(p: &T) -> *mut c_void {
     (p as *const T).cast_mut().cast()
 }
+
+/// Mutable light-userdata helper (the callback writes through it).
+pub fn light_mut<T>(p: &mut T) -> *mut c_void {
+    (p as *mut T).cast()
+}

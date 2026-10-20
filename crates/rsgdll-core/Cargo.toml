@@ -7,9 +7,14 @@ license.workspace = true
 
 [dependencies]
 rsgdll-sys.workspace = true
+indexmap = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["std"] }
 
 [features]
 backtrace = []
+indexmap = ["dep:indexmap"]
+serde = ["dep:serde"]
 
 [dev-dependencies]
 libloading.workspace = true
+serde = { workspace = true, features = ["derive"] }

@@ -89,10 +89,12 @@ dependencies = [
 name = "rsgdll"
 version = "0.1.0"
 dependencies = [
+ "libloading",
  "linkme",
  "rsgdll-core",
  "rsgdll-gmod",
  "rsgdll-macros",
+ "rsgdll-sys",
 ]
 
 [[package]]
@@ -103,8 +105,10 @@ version = "0.1.0"
 name = "rsgdll-core"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "libloading",
  "rsgdll-sys",
+ "serde",
 ]
 
 [[package]]

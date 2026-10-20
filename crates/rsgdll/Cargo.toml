@@ -7,6 +7,15 @@ license.workspace = true
 
 [dependencies]
 rsgdll-core.workspace = true
+rsgdll-sys.workspace = true
 rsgdll-macros.workspace = true
 rsgdll-gmod.workspace = true
 linkme.workspace = true
+
+[features]
+backtrace = ["rsgdll-core/backtrace"]
+serde = ["rsgdll-core/serde"]
+indexmap = ["rsgdll-core/indexmap"]
+
+[dev-dependencies]
+libloading.workspace = true
