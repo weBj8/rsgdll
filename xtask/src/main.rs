@@ -2,6 +2,7 @@
 
 mod apidb;
 mod config;
+mod hooks;
 mod probe;
 mod vtables;
 
@@ -50,7 +51,13 @@ fn run(args: &[String]) -> Result<(), String> {
             apidb::generate(&dir)
                 .and_then(|data| std::fs::write(out.join("data.txt"), data).map_err(|e| e.to_string()))
                 .and_then(|()| std::fs::write(out.join("commit.txt"), apidb::COMMIT).map_err(|e| e.to_string()))
-                .map(|()| println!("wrote {}", out.join("data.txt").display()))
+                .and_then(|()| {
+                    // Re-parse the fresh data so hook markers match it exactly.
+                    let data = std::fs::read_to_string(out.join("data.txt")).map_err(|e| e.to_string())?;
+                    let hooks_file = root.join("crates/rsgdll-gmod/src/hooks_gen.rs");
+                    std::fs::write(&hooks_file, hooks::generate(&rsgdll_apidb::parse(&data))).map_err(|e| e.to_string())
+                })
+                .map(|()| println!("wrote {} and hooks_gen.rs", out.join("data.txt").display()))
         }
         Some((cmd, rest)) if cmd == "gen-vtables" => {
             let root = config::workspace_root();

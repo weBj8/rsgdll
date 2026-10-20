@@ -5,6 +5,10 @@ pub use rsgdll_core::conv::*;
 pub use rsgdll_macros::{LuaUserData, LuaValue, function, interface, lua, methods, module, postclose, postopen, preclose, preopen};
 pub use rsgdll_core::{Realm, interface::{LuaInterface, LuaShared, RealmInterface}};
 
+pub use rsgdll_gmod::{concommand, cvars, hook, hooks, net, timer};
+/// Attribute forms (`#[rsgdll::hook(Think)]`, `#[rsgdll::timer(every = "1s")]`); macros and
+/// modules live in separate namespaces, so `rsgdll::hook::add` keeps working.
+pub use rsgdll_macros::{hook, timer};
 pub use rsgdll_core::rt::{LocalLua, LuaHandle, sleep, spawn_local, spawn_worker};
 /// Callback param marker for async exports (`#[lua(callback)] cb: Callback`).
 pub type Callback = LuaFunction;
@@ -28,6 +32,7 @@ pub mod __rt {
     pub use rsgdll_core::*;
     pub use rsgdll_sys as sys;
     pub use linkme;
+    pub use rsgdll_gmod as gmod;
 }
 
 pub mod prelude {

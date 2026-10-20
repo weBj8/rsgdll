@@ -207,7 +207,7 @@ impl Lua {
 
 pub use func::{LuaFunction, create_function};
 pub use gmod::{Angle, Color, Entity, EntityRef, Player, PlayerRef, Vector};
-pub use multi::{FromArgs, FromLuaMulti, IntoLuaMulti, Variadic};
+pub use multi::{Chain, FromArgs, FromLuaMulti, IntoLuaMulti, Variadic};
 pub use prim::{AsString, LuaBytes, Nil, SteamId64};
 pub use table::LuaTable;
 pub use userdata::{LuaUd, UserData, UserDataMethods};

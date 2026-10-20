@@ -1,0 +1,8 @@
+error[E0609]: no field `3` on type `(Option<rsgdll::PlayerRef<'a>>, std::string::String, bool)`
+ --> tests/ui/fail_hook_too_many.rs:4:1
+  |
+4 | #[rsgdll::hook(PlayerSay)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^ unknown field
+  |
+  = note: available fields are: `0`, `1`, `2`
+  = note: this error originates in the attribute macro `rsgdll::hook` (in Nightly builds, run with -Z macro-backtrace for more info)

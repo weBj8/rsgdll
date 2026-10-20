@@ -126,3 +126,12 @@ pub fn variadic_from<T: FromLua>(lua: &Lua, first: c_int, count: c_int, from: c_
 pub fn arg<'a, T: FromArg<'a>>(lua: &'a Lua, first: c_int, count: c_int, i: c_int) -> Result<T, (c_int, ConvError)> {
     T::from_arg(lua, valid(lua, at(first, count, i))).map_err(|e| (i + 1, e))
 }
+
+/// Two multi-values pushed back to back (`(event, ...args)`).
+pub struct Chain<A, B>(pub A, pub B);
+
+impl<A: IntoLuaMulti, B: IntoLuaMulti> IntoLuaMulti for Chain<A, B> {
+    fn into_lua_multi(self, s: &mut Stage<'_>) -> Result<c_int, ConvError> {
+        Ok(self.0.into_lua_multi(s)? + self.1.into_lua_multi(s)?)
+    }
+}

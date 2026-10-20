@@ -3,6 +3,7 @@
 mod asyncfn;
 mod derive;
 mod function;
+mod hookattr;
 mod interface;
 mod lua_macro;
 mod methods;
@@ -76,4 +77,16 @@ pub fn interface(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn lua(input: TokenStream) -> TokenStream {
     emit(lua_macro::lua(parse_macro_input!(input as lua_macro::LuaInput)))
+}
+
+/// Registers a `hook.Add` callback at open (spec §10.4).
+#[proc_macro_attribute]
+pub fn hook(attr: TokenStream, item: TokenStream) -> TokenStream {
+    emit(hookattr::hook(attr.into(), parse_macro_input!(item as ItemFn)))
+}
+
+/// Registers a named timer at open (spec §10.3).
+#[proc_macro_attribute]
+pub fn timer(attr: TokenStream, item: TokenStream) -> TokenStream {
+    emit(hookattr::timer(attr.into(), parse_macro_input!(item as ItemFn)))
 }

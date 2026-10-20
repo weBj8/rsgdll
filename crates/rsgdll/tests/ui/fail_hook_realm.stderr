@@ -1,0 +1,5 @@
+error: hook `HUDPaint` is client-only and this crate does not build the client realm
+ --> tests/ui/fail_hook_realm.rs:4:16
+  |
+4 | #[rsgdll::hook(HUDPaint)]
+  |                ^^^^^^^^

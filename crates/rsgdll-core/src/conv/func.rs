@@ -256,3 +256,24 @@ impl Lua {
         r
     }
 }
+
+/// Lua function from a positional-conversion body (`Err((arg, e))` = bad argument).
+pub fn create_raw(
+    lua: &Lua,
+    path: String,
+    f: impl Fn(&Lua, c_int) -> std::result::Result<Result<()>, (c_int, ConvError)> + 'static,
+) -> Result<LuaFunction> {
+    let boxed: Boxed = Box::new(move |lua| {
+        let count = lua.top();
+        match f(lua, count) {
+            Err((n, e)) => bad_argument(lua, &path, n, &e),
+            Ok(Ok(())) => Outcome::Ok(0),
+            Ok(Err(e)) => Outcome::Err(trampoline::format_error(lua.module_name(), &path, &e.lua_message())),
+        }
+    });
+    let g = lua.guard();
+    push_raw_closure(lua, boxed)?;
+    let r = LuaRef::new(lua, -1).map(LuaFunction);
+    drop(g);
+    r
+}

@@ -1,0 +1,13 @@
+error: unknown GMod hook `PlayerSya` (did you mean `PlayerSay`?); use a string for custom hooks
+ --> tests/ui/fail_hook_typo.rs:4:16
+  |
+4 | #[rsgdll::hook(PlayerSya)]
+  |                ^^^^^^^^^
+
+warning: unused import: `rsgdll::prelude::*`
+ --> tests/ui/fail_hook_typo.rs:1:5
+  |
+1 | use rsgdll::prelude::*;
+  |     ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

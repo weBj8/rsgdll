@@ -149,7 +149,9 @@ dependencies = [
 name = "rsgdll-gmod"
 version = "0.1.0"
 dependencies = [
+ "linkme",
  "rsgdll-core",
+ "rsgdll-sys",
 ]
 
 [[package]]
@@ -377,6 +379,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "libloading",
+ "rsgdll-apidb",
  "serde",
  "toml",
 ]
