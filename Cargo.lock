@@ -236,6 +236,7 @@ name = "showcase"
 version = "0.1.0"
 dependencies = [
  "rsgdll",
+ "serde",
 ]
 
 [[package]]

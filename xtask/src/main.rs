@@ -16,6 +16,7 @@ fn usage() -> String {
         "  probe-luajit [lua_shared path...]   record LuaJIT version, symbols, unwinding, GLua syntax",
         "  build [--target all|win32|win64|linux|linux64] [--realm sv|cl] [--release] [--menu] -p <crate>",
         "  install --realm sv|cl <file>        copy a built module into garrysmod/lua/bin",
+        "  probe-threadedcall                  srcds stress test of AddThreadedCall from worker threads",
         "  test-srcds [--keep]                 build+install examples, run srcds, assert RSGDLL_TEST lines",
         "  gen-apidb [library dir]             regenerate crates/rsgdll-apidb/src/data.txt",
         "  gen-vtables [headers dir]           regenerate crates/rsgdll-sys/src/vtables.rs",
@@ -100,6 +101,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let file = rest.last().filter(|f| !f.starts_with("--") && *f != "sv" && *f != "cl").ok_or("missing <file>")?;
             build::install(std::path::Path::new(file), realm).map(|d| println!("installed {}", d.display()))
         }
+        Some((cmd, _)) if cmd == "probe-threadedcall" => srcds::probe_threadedcall(),
         Some((cmd, rest)) if cmd == "test-srcds" => srcds::test(rest.iter().any(|a| a == "--keep")),
         _ => Err(usage()),
     }

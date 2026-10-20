@@ -190,19 +190,20 @@ pub fn run_srcds(timeout: Duration, done_marker_count: usize, extra: &[&str]) ->
     std::thread::spawn(move || BufReader::new(stderr).lines().map_while(Result::ok).for_each(|l| drop(tx2.send(format!("[stderr] {l}")))));
     let start = Instant::now();
     let mut run = Run { results: Vec::new(), done: false, log: Vec::new() };
-    let mut dones = 0;
-    while start.elapsed() < timeout && dones < done_marker_count {
+    // Distinct `RSGDLL_TEST_DONE <script>` markers (a reload test re-runs other scripts).
+    let mut dones: std::collections::HashSet<String> = std::collections::HashSet::new();
+    while start.elapsed() < timeout && dones.len() < done_marker_count {
         if let Ok(line) = rx.recv_timeout(Duration::from_millis(200)) {
             if let Some(r) = parse_line(&line) {
                 run.results.push(r);
             }
-            if line.contains("RSGDLL_TEST_DONE") {
-                dones += 1;
+            if let Some(rest) = line.split("RSGDLL_TEST_DONE").nth(1) {
+                dones.insert(rest.trim().to_owned());
             }
             run.log.push(line);
         }
     }
-    run.done = dones >= done_marker_count;
+    run.done = dones.len() >= done_marker_count;
     // Let shutdown messages (close hooks) flush, then stop the server.
     let grace = Instant::now();
     while grace.elapsed() < Duration::from_secs(3) {

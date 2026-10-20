@@ -70,3 +70,24 @@ pub fn test(keep: bool) -> Result<(), String> {
         _ => Err(format!("{failed} srcds test(s) failed (log: {})", log.display())),
     }
 }
+
+/// `probe-threadedcall` (spec §10.2/§15): `AddThreadedCall` from 16 worker threads in srcds.
+/// PASS only if every call ran on the main thread within the timeout.
+pub fn probe_threadedcall() -> Result<(), String> {
+    let srcds = config::srcds_dir()?;
+    let spec = Spec { krate: "showcase".into(), module: "showcase".into(), platform: Platform::Linux64, realm: RealmArg::Sv, release: true, menu: false, extra_features: Vec::new(), native: true };
+    let dll = build::build(&spec).and_then(|f| build::install(&f, RealmArg::Sv))?;
+    let script = srcds.join("garrysmod/lua/autorun/server/rsgdll_probe_threadedcall.lua");
+    let lua = "RunConsoleCommand('sv_hibernate_think', '1') require('showcase') showcase.ProbeThreaded(16)\n\
+               timer.Simple(2, function() print('RSGDLL_TEST probe_threadedcall ' .. (showcase.ProbeRuns() == 16 and 'PASS' or 'FAIL') .. ' runs=' .. showcase.ProbeRuns()) print('RSGDLL_TEST_DONE probe') end)\n";
+    std::fs::write(&script, lua).map_err(|e| e.to_string())?;
+    let run = build::run_srcds(Duration::from_secs(60), 1, &[]);
+    [&script, &dll].iter().for_each(|p| drop(std::fs::remove_file(p)));
+    let run = run?;
+    let log = config::workspace_root().join("target/probe-threadedcall.log");
+    std::fs::write(&log, run.log.join("\n")).map_err(|e| e.to_string())?;
+    match (run.done, run.results.iter().all(|r| r.1)) {
+        (true, true) => Ok(println!("probe-threadedcall PASS: AddThreadedCall is safe from worker threads on linux64")),
+        _ => Err(format!("probe-threadedcall FAIL (hang/timeout or missed runs); keep the Think-hook wake-up (log: {})", log.display())),
+    }
+}

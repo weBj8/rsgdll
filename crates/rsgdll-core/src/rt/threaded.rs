@@ -75,3 +75,22 @@ pub unsafe fn add_raw(iface: usize, f: impl FnOnce(*mut ILuaBase) + Send + 'stat
     let _ = unsafe { ((*iface).vt().add_threaded_call)(iface.cast(), call.cast()) };
     Ok(())
 }
+
+/// Number of threaded calls that ran (probe bookkeeping).
+pub static PROBE_RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// `probe-threadedcall` body: `n` worker threads each call `AddThreadedCall` concurrently;
+/// GMod runs them on the main thread, which bumps [`PROBE_RUNS`].
+pub fn probe(lua: &Lua, n: usize) -> Result<()> {
+    let iface = lua.interface()?.raw() as usize;
+    (0..n)
+        .map(|_| {
+            std::thread::spawn(move || {
+                // SAFETY: this is the unverified call the probe exists to test.
+                unsafe { add_raw(iface, |_| { PROBE_RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }) }
+            })
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .try_for_each(|t| t.join().unwrap_or_else(|_| Err(Error::msg("probe thread panicked"))))
+}

@@ -148,13 +148,14 @@ pub fn lua(input: LuaInput) -> syn::Result<TokenStream> {
     // shortcut: capture Rust types are invisible to a proc macro, so method checks only
     // apply to known-return calls; upgrade by accepting `name: Type = expr` hints.
     let ctx = Ctx { captures: captures.iter().map(|c| (c.clone(), None)).collect(), ..Ctx::default() };
-    let diags = rsgdll_luacheck::check(&src, rsgdll_apidb::db(), &ctx);
+    let diags = rsgdll_luacheck::check(&runnable, rsgdll_apidb::db(), &ctx);
     let silenced = |k: &Kind| input.unchecked && matches!(k, Kind::UnknownMember | Kind::Arity | Kind::Realm(_) | Kind::Deprecated);
     let mut errors = Vec::new();
     let mut extra = Vec::new();
     diags.iter().filter(|d| !silenced(&d.kind)).for_each(|d| {
-        let span = input.span_at(d.span.start);
-        let (line, col) = rsgdll_luacheck::line_col(&src, d.span.start);
+        let off = d.span.start.saturating_sub(runnable.len() - src.len());
+        let span = input.span_at(off);
+        let (line, col) = rsgdll_luacheck::line_col(&src, off);
         let msg = match &input.body {
             Body::Str(_) => format!("lua!:{}:{}: {}", line + 1, col + 1, d.msg),
             Body::Tokens(..) => format!("lua!: {}", d.msg),
