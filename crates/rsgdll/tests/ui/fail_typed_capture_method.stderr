@@ -1,0 +1,5 @@
+error: lua!:1:8: unknown method 'Player:Nikc' (did you mean 'Player:Nick'?)
+ --> tests/ui/fail_typed_capture_method.rs:6:15
+  |
+6 |     lua!(lua, "return $ply:Nikc()", ply: PlayerRef = p)
+  |               ^^^^^^^^^^^^^^^^^^^^

@@ -164,10 +164,7 @@ pub fn trim_backtrace(bt: &str) -> String {
         let t = line.trim_start();
         match t.split_once(": ").filter(|(n, _)| n.chars().all(|c| c.is_ascii_digit())) {
             Some(_) => acc.push(vec![t]),
-            None => match acc.last_mut() {
-                Some(f) => f.push(t),
-                None => {}
-            },
+            None => if let Some(f) = acc.last_mut() { f.push(t) },
         }
         acc
     });

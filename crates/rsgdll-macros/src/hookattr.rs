@@ -84,8 +84,6 @@ pub fn hook(attr: TokenStream, item: ItemFn) -> syn::Result<TokenStream> {
                 "SANDBOX" => quote!(#rt::gmod::hooks::sandbox::#h),
                 _ => quote!(#rt::gmod::hooks::#h),
             };
-            // shortcut: params must use the generated hook arg types exactly (fewer is fine);
-            // supertype coercion (`HookArgCompat`) is not implemented, use `unchecked` + a string name.
             let tys: Vec<&Type> = params.iter().filter_map(|a| match a {
                 FnArg::Typed(t) => Some(&*t.ty),
                 _ => None,
@@ -107,11 +105,11 @@ pub fn hook(attr: TokenStream, item: ItemFn) -> syn::Result<TokenStream> {
                 crate::function::outcome(&kind, &quote!(#name_lit), false)
             };
             let body = quote! {
-                // Type check: each param must be the hook's arg type at that position (rustc errors
+                // Type check: each param must be `HookArgCompat` with the hook's arg at that position (rustc errors
                 // on mismatch; an extra param indexes past the tuple and fails to compile).
                 #[allow(dead_code, unused_variables)]
                 fn __check<'a>(__a: <#path as #rt::gmod::hook::Hook>::Args<'a>) {
-                    #( let _: #tys = __a.#idx; )*
+                    #( #rt::gmod::hook::compat::<#tys, _>(&__a.#idx); )*
                 }
                 let __id = ::std::format!("rsgdll.{}.{}", __lua.module_name(), #fname);
                 #rt::gmod::hook::add_raw(__lua, <#path as #rt::gmod::hook::Hook>::NAME, &__id, |__lua, __count| {
@@ -120,7 +118,7 @@ pub fn hook(attr: TokenStream, item: ItemFn) -> syn::Result<TokenStream> {
                     ::core::result::Result::Ok(#out)
                 })
             };
-            (name, body, Some(guard).filter(|_| found.realm != rsgdll_apidb::Realm::Shared))
+            (name, body, (found.realm != rsgdll_apidb::Realm::Shared).then_some(guard))
         }
         (t, _) => {
             let name = match t {

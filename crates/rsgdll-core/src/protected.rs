@@ -197,6 +197,9 @@ unsafe fn step(a: &LuaApi, l: *mut lua_State, args: &Args, op: Op) {
 }
 
 /// Copies a raw view of a slot. Never coerces, never allocates.
+///
+/// # Safety
+/// Called by Lua (or `read` by the safe layer) with a live `lua_State` on its owning thread.
 pub unsafe fn read(a: &LuaApi, l: *mut lua_State, i: c_int) -> Raw {
     unsafe {
         let tag = (a.lua_type)(l, i);
@@ -216,6 +219,9 @@ pub unsafe fn read(a: &LuaApi, l: *mut lua_State, i: c_int) -> Raw {
 
 /// The interpreter. Stack on entry: `[args lightuserdata, inputs...]`; returns everything
 /// left on its frame after the ops ran.
+///
+/// # Safety
+/// Called by Lua (or `read` by the safe layer) with a live `lua_State` on its owning thread.
 pub unsafe extern "C-unwind" fn interpreter(l: *mut lua_State) -> c_int {
     let a = rsgdll_sys::api();
     unsafe {
@@ -235,6 +241,9 @@ pub unsafe extern "C-unwind" fn interpreter(l: *mut lua_State) -> c_int {
 }
 
 /// Message handler for [`Op::Call`]: appends `luaL_traceback` to string messages.
+///
+/// # Safety
+/// Called by Lua (or `read` by the safe layer) with a live `lua_State` on its owning thread.
 pub unsafe extern "C-unwind" fn traceback_handler(l: *mut lua_State) -> c_int {
     let a = rsgdll_sys::api();
     unsafe {
@@ -257,6 +266,9 @@ pub struct Boot {
 }
 
 /// Creates the interpreter/handler closures and the OOM fallback message as registry refs.
+///
+/// # Safety
+/// Called by Lua (or `read` by the safe layer) with a live `lua_State` on its owning thread.
 pub unsafe extern "C-unwind" fn bootstrap(l: *mut lua_State) -> c_int {
     let a = rsgdll_sys::api();
     unsafe {

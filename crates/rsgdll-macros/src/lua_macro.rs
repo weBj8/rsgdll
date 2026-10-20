@@ -18,6 +18,8 @@ pub struct LuaInput {
     unchecked: bool,
     body: Body,
     named: Vec<(Ident, Expr)>,
+    /// `name: Type = expr` hints -> Lua class for method checks (spec §9.2 check 7).
+    hints: Vec<(String, String)>,
 }
 
 /// Rebuilds Lua source from Rust tokens (`Spacing::Joint` rejoins `~=`, `..`, `::`).
@@ -82,6 +84,18 @@ fn rebuild(ts: TokenStream, src: &mut String, spans: &mut Vec<(usize, Span)>) ->
     Ok(())
 }
 
+/// Rust type -> Lua class name known to the API database.
+fn lua_class(ty: &syn::Type) -> Option<String> {
+    let id = crate::util::last_ident(ty)?;
+    Some(match id.as_str() {
+        "Player" | "PlayerRef" => "Player",
+        "Entity" | "EntityRef" => "Entity",
+        "Vector" => "Vector",
+        "Angle" => "Angle",
+        _ => return None,
+    }.to_owned())
+}
+
 impl Parse for LuaInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let handle: Expr = input.parse()?;
@@ -100,21 +114,29 @@ impl Parse for LuaInput {
             true => {
                 let lit: LitStr = input.parse()?;
                 let mut named = Vec::new();
+                let mut hints = Vec::new();
                 while input.parse::<Option<Token![,]>>()?.is_some() && !input.is_empty() {
                     let n: Ident = input.parse()?;
+                    if input.parse::<Option<Token![:]>>()?.is_some() {
+                        let ty: syn::Type = input.parse()?;
+                        if let Some(class) = lua_class(&ty) {
+                            hints.push((n.to_string(), class));
+                        }
+                    }
                     input.parse::<Token![=]>()?;
                     named.push((n, input.parse()?));
                 }
-                (Body::Str(lit), named)
+                (Body::Str(lit), (named, hints))
             }
             false => {
                 let ts: TokenStream = input.parse()?;
                 let (mut src, mut spans) = (String::new(), Vec::new());
                 rebuild(ts, &mut src, &mut spans)?;
-                (Body::Tokens(src, spans), Vec::new())
+                (Body::Tokens(src, spans), (Vec::new(), Vec::new()))
             }
         };
-        Ok(LuaInput { handle, unchecked, body, named })
+        let (named, hints) = named;
+        Ok(LuaInput { handle, unchecked, body, named, hints })
     }
 }
 
@@ -145,9 +167,10 @@ pub fn lua(input: LuaInput) -> syn::Result<TokenStream> {
         false => src.clone(),
     };
     let (rewritten, captures) = rsgdll_luacheck::rewrite(&runnable).map_err(|d| syn::Error::new(input.span_at(d.span.start), d.msg))?;
-    // shortcut: capture Rust types are invisible to a proc macro, so method checks only
-    // apply to known-return calls; upgrade by accepting `name: Type = expr` hints.
-    let ctx = Ctx { captures: captures.iter().map(|c| (c.clone(), None)).collect(), ..Ctx::default() };
+    // Proc macros cannot see variable types; typed named captures (`ply: Player = p`) give
+    // the class for method checks, plus known-return call chains (spec §9.2 check 7).
+    let class = |c: &String| input.hints.iter().find(|(n, _)| n == c).map(|(_, t)| t.clone());
+    let ctx = Ctx { captures: captures.iter().map(|c| (c.clone(), class(c))).collect(), ..Ctx::default() };
     let diags = rsgdll_luacheck::check(&runnable, rsgdll_apidb::db(), &ctx);
     let silenced = |k: &Kind| input.unchecked && matches!(k, Kind::UnknownMember | Kind::Arity | Kind::Realm(_) | Kind::Deprecated);
     let mut errors = Vec::new();

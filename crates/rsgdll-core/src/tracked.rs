@@ -25,20 +25,14 @@ pub fn teardown(lua: &Lua) {
     let hooks: Vec<(String, String)> = lua.runtime().hooks.borrow_mut().drain(..).collect();
     let timers: Vec<String> = lua.runtime().timers.borrow_mut().drain(..).collect();
     let log = |what: &str, e: crate::Error| rsgdll_sys::tier0::msg(&format!("[{}] cleanup {what}: {e}\n", lua.module_name()));
-    match lua.global::<Option<LuaFunction>>("hook.Remove") {
-        Ok(Some(f)) => hooks.iter().for_each(|(e, i)| {
-            if let Err(err) = f.call::<_, ()>(lua, (e.as_str(), i.as_str())) {
-                log(&format!("hook {e}/{i}"), err);
-            }
-        }),
-        _ => {}
-    }
-    match lua.global::<Option<LuaFunction>>("timer.Remove") {
-        Ok(Some(f)) => timers.iter().for_each(|n| {
-            if let Err(err) = f.call::<_, ()>(lua, n.as_str()) {
-                log(&format!("timer {n}"), err);
-            }
-        }),
-        _ => {}
-    }
+    if let Ok(Some(f)) = lua.global::<Option<LuaFunction>>("hook.Remove") { hooks.iter().for_each(|(e, i)| {
+        if let Err(err) = f.call::<_, ()>(lua, (e.as_str(), i.as_str())) {
+            log(&format!("hook {e}/{i}"), err);
+        }
+    }) }
+    if let Ok(Some(f)) = lua.global::<Option<LuaFunction>>("timer.Remove") { timers.iter().for_each(|n| {
+        if let Err(err) = f.call::<_, ()>(lua, n.as_str()) {
+            log(&format!("timer {n}"), err);
+        }
+    }) }
 }

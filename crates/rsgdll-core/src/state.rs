@@ -1,5 +1,8 @@
 //! Per-state runtime registry (spec §6.1a): keyed by `lua_topointer(L, LUA_REGISTRYINDEX)`,
 //! with a per-DLL monotonic generation counter.
+// Fns here take a `lua_State*` only to key the map; it is passed to `lua_topointer`, never
+// dereferenced in Rust, and comes from Lua or an existing runtime entry.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use core::ffi::{c_int, c_void};
 use std::any::Any;
@@ -111,10 +114,9 @@ pub fn defer_unref(generation: u64, id: c_int) {
     // `try_with`: may run during thread-local destruction.
     let _ = STATES.try_with(|s| {
         if let Ok(map) = s.try_borrow() {
-            map.values()
+            if let Some(mut q) = map.values()
                 .find(|r| r.generation == generation)
-                .and_then(|r| r.unrefs.try_borrow_mut().ok())
-                .map(|mut q| q.push(id));
+                .and_then(|r| r.unrefs.try_borrow_mut().ok()) { q.push(id) }
         }
     });
 }

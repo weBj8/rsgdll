@@ -96,12 +96,11 @@ pub fn parse_header(src: &str) -> Vec<Class> {
                 Some(p) => Some(format!("{p} {line}")),
                 None if line.starts_with("virtual") => Some(line.to_owned()),
                 None => {
-                    if let Some(rest) = line.strip_prefix("class ") {
-                        if !rest.ends_with(';') {
+                    if let Some(rest) = line.strip_prefix("class ")
+                        && !rest.ends_with(';') {
                             let name = rest.split(|c: char| !c.is_alphanumeric() && c != '_').next().unwrap_or("");
                             classes.push(Class { name: name.to_owned(), methods: Vec::new() });
                         }
-                    }
                     None
                 }
             };

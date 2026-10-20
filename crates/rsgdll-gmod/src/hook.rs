@@ -108,3 +108,27 @@ pub fn call_custom<A: IntoLuaMulti, R: FromLuaMulti>(lua: &Lua, event: &str, gm:
 pub fn call<'a, H: Hook>(lua: &Lua, gm: Option<&LuaTable>, args: H::Args<'a>) -> Result<H::Ret> {
     call_custom(lua, H::NAME, gm, args)
 }
+
+/// `#[rsgdll::hook(Ident)]` param compatibility with the hook's arg type (spec §10.4):
+/// identity, supertype refs (`Player` arg accepts `EntityRef`), any numeric for `number`,
+/// and `LuaValue` for anything.
+pub trait HookArgCompat<A> {}
+
+impl<T> HookArgCompat<T> for T {}
+impl<'a, 'b> HookArgCompat<Option<rsgdll_core::conv::PlayerRef<'a>>> for Option<rsgdll_core::conv::EntityRef<'b>> {}
+
+macro_rules! numeric_compat {
+    ($($t:ty),*) => {$( impl HookArgCompat<f64> for $t {} )*};
+}
+numeric_compat!(f32, i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
+
+macro_rules! value_compat {
+    ($($t:ty),*) => {$( impl HookArgCompat<$t> for rsgdll_core::conv::LuaValue {} )*};
+}
+value_compat!(f64, String, bool, rsgdll_core::conv::LuaTable, rsgdll_core::conv::Vector, rsgdll_core::conv::Angle, rsgdll_core::conv::Color);
+impl<'a> HookArgCompat<Option<rsgdll_core::conv::PlayerRef<'a>>> for rsgdll_core::conv::LuaValue {}
+impl<'a> HookArgCompat<Option<rsgdll_core::conv::EntityRef<'a>>> for rsgdll_core::conv::LuaValue {}
+
+/// Compile-time check used by the attribute macro.
+#[doc(hidden)]
+pub fn compat<P: HookArgCompat<A>, A>(_: &A) {}

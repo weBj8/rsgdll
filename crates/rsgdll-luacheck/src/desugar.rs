@@ -49,7 +49,7 @@ pub fn desugar(src: &str) -> Result<String, Diagnostic> {
     for t in toks.iter().filter(|t| t.tok != Tok::Eof) {
         out.push_str(&gap(src, at, t.span.start));
         at = t.span.end;
-        let label = |id: usize, used: &Vec<usize>| used.contains(&id).then(|| format!(" ::__continue_{id}:: ")).unwrap_or_default();
+        let label = |id: usize, used: &Vec<usize>| if used.contains(&id) { format!(" ::__continue_{id}:: ") } else { Default::default() };
         match &t.tok {
             Tok::Sym("function") => stack.push(Block::Func),
             Tok::Sym("if") => stack.push(Block::If),

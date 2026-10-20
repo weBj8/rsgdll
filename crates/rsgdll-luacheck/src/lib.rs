@@ -170,7 +170,7 @@ impl<'a> Checker<'a> {
             }
             Expr::Field(base, field, sp) => {
                 self.expr(base);
-                if let Some(Expr::Name(lib, _)) = Some(&**base).filter(|_| true) {
+                if let Expr::Name(lib, _) = &**base {
                     if !self.is_local(lib) && self.db.libraries.contains_key(lib) && !self.db.functions.contains_key(&format!("{lib}.{field}")) && !self.db.variables.contains_key(&format!("{lib}.{field}")) {
                         let members: Vec<&str> = self.db.members(lib).collect();
                         // Libraries the snippets list without members (e.g. pure Lua std) are not checked.

@@ -54,3 +54,8 @@ fn attrs_register_and_teardown() {
     let left = common::exec(l, "local n = 0 for _, ev in pairs(hook.t) do for _ in pairs(ev) do n = n + 1 end end for _ in pairs(timer.t) do n = n + 1 end return n").unwrap();
     assert_eq!(left, "0", "framework hooks/timers must be removed at close");
 }
+
+#[rsgdll::hook(PlayerSay)]
+fn on_say_compat(_ent: Option<EntityRef<'_>>, _text: LuaValue) -> Result<()> {
+    Ok(())
+}

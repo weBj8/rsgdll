@@ -35,7 +35,7 @@ pub struct UserDataMethods<T> {
 /// Userdata memory: the value (taken on `__gc`).
 type Slot<T> = RefCell<Option<T>>;
 
-fn self_slot<'l, T: UserData>(lua: &'l Lua, idx: c_int) -> Result<&'l Slot<T>, ConvError> {
+fn self_slot<T: UserData>(lua: &Lua, idx: c_int) -> Result<&Slot<T>, ConvError> {
     let meta = metatable::<T>(lua).map_err(lua_err)?;
     let g = lua.guard();
     let [found, eq] = lua.read_ops::<2>(&[idx], &[Op::GetMetatable(1, 0), Op::PushRef(meta), Op::RawEqual(-1, -2, 1)])?;

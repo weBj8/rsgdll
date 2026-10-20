@@ -87,7 +87,10 @@ pub fn probe_threadedcall() -> Result<(), String> {
     let log = config::workspace_root().join("target/probe-threadedcall.log");
     std::fs::write(&log, run.log.join("\n")).map_err(|e| e.to_string())?;
     match (run.done, run.results.iter().all(|r| r.1)) {
-        (true, true) => Ok(println!("probe-threadedcall PASS: AddThreadedCall is safe from worker threads on linux64")),
+        (true, true) => {
+            println!("probe-threadedcall PASS: AddThreadedCall is safe from worker threads on linux64");
+            Ok(())
+        }
         _ => Err(format!("probe-threadedcall FAIL (hang/timeout or missed runs); keep the Think-hook wake-up (log: {})", log.display())),
     }
 }

@@ -983,9 +983,9 @@ One line per decision; the linked section is the source of truth.
 | Gate: `AddThreadedCall` from workers | **Failed** on linux64 (`cargo xtask probe-threadedcall` hangs srcds). Fallback: Think-hook wake-up stays the default; threaded calls only with `RSGDLL_THREADED_CALL=1` | 10.2, 15 |
 | GLua syntax | `lua!` always desugars GLua to Lua 5.1 at compile time (the fallback), so no per-target probe is needed | 8.3, 15 |
 | Bound symbols | `lua_resume` removed: GMod's linux64 `lua_shared` does not export it (probe intersection rule) | 3, 5.1 |
+| `lua!` capture types | Proc macros cannot see variable types: method checks use typed named captures (`lua!(lua, "...", ply: Player = p)`) and known-return call chains | 8.3, 9.2 |
+| Gate: protected-op overhead | Measured (`cargo test --release -p rsgdll-core --test bench -- --ignored`, linux64): raw push 5 ns, single protected op 56 ns, batch of 8 pushes 211 ns total (26 ns/push). Batching keeps overhead acceptable; API frozen as is | 7.3, 15 |
 | linux64 srcds | Launched with `srcds_run_x64` (`srcds_run` is the 32-bit branch, which loads `_linux` modules) | 12 |
-| `#[hook(Ident)]` params | Shortcut: params must use the generated arg types exactly (fewer is fine); `HookArgCompat` supertype coercion is not implemented; use the string form for other types | 10.4 |
-| `lua!` method checks | Shortcut: capture Rust types are invisible to the proc macro, so method checks only apply to known-return call chains | 9.2 |
 
 ## 15. Open risks
 
@@ -1001,3 +1001,31 @@ Each risk has a gating check; the dependent feature ships only when it passes.
 | `forbid(unsafe_code)` with `mixed_site` spans | `trybuild` lint case (§13.2) | Drop guarantee, document `allow(unsafe_code)` |
 | MSVC vtable slot order / `thiscall` | Windows srcds CI showcase interface tests | Fix generator overrides |
 | Protected-op overhead (pcall per allocating op) | Benchmark before `rsgdll-core` API freeze | More batching in protected callbacks |
+
+## 16. Implementation checklist
+
+| § | Where | Verified by |
+|---|---|---|
+| 1 Goals / user contract | `crates/rsgdll` facade, macros emit all FFI | trybuild `pass_forbid_unsafe` (`#![forbid(unsafe_code)]`) |
+| 2 Decisions | whole workspace | this table |
+| 3 Background | `xtask probe-luajit`, `docs/probe-linux64.txt` | probe run on linux64 |
+| 4 Layout | `crates/*`, `xtask`, `examples/*` | `cargo build --workspace` |
+| 5.1 Lua C API | `rsgdll-sys/src/lua.rs` | `rsgdll-sys/tests/luajit.rs`, srcds |
+| 5.2 GMod interfaces | `rsgdll-sys/src/{gmod,vtables,loader,tier0}.rs`, `rsgdll-core/src/interface.rs`, `#[rsgdll::interface]` | `xtask gen-vtables` tests, srcds `interfaces` |
+| 6.1 / 6.1a Handle, states | `rsgdll-core/src/{lua,state}.rs` | `runtime.rs`, srcds reload + coroutine tests |
+| 6.2 Values | `rsgdll-core/src/conv/*` | `conv.rs`, srcds `conv_*` |
+| 6.3 Derive | `rsgdll-macros/src/derive.rs` | `rsgdll/tests/derive.rs` |
+| 6.4 Serde | `conv/serde.rs` | `conv.rs serde_roundtrip`, srcds `conv_serde` |
+| 7 Errors / trampoline | `rsgdll-core/src/{error,trampoline,protected}.rs` | `runtime.rs`, `macros.rs`, srcds `error_*`, clippy deny lints |
+| 8.1 Lifecycle | `rsgdll-core/src/module.rs`, `module!` | `macros.rs` order test, srcds lifecycle + reload |
+| 8.2 Exports | `rsgdll-macros/src/{function,methods}.rs` | `macros.rs`, trybuild `fail_shadow_global`, srcds `export_*` |
+| 8.3 `lua!` | `lua_macro.rs`, `rsgdll-core/src/chunk.rs`, `luacheck/desugar.rs` | `macros.rs`, srcds `lua_macro_forms` |
+| 9 Checker / apidb | `rsgdll-luacheck`, `rsgdll-apidb`, `xtask gen-apidb` | luacheck/apidb unit tests, trybuild `fail_unknown_member`, `fail_syntax`, `fail_client_call_in_server`, `fail_typed_capture_method` |
+| 10.1/10.2 Async | `rsgdll-core/src/rt/*`, async `#[function]` | `async_rt.rs`, srcds `async_*`; threaded-call gate failed -> Think fallback (§14) |
+| 10.3 Libraries | `rsgdll-gmod/src/{hook,timer,misc}.rs`, `#[hook]`, `#[timer]` | `gmod_libs.rs`, `hook_attrs.rs`, srcds `hook_*`, `timer_*` |
+| 10.4 Typed hooks | generated `hooks_gen.rs`, `HookArgCompat` | `gmod_libs.rs`, `hook_attrs.rs`, trybuild `fail_hook_*` |
+| 11 Build | `xtask build/install` | builds for linux64, linux, win32, win64 |
+| 12 Testing | `xtask test-srcds`, `.github/workflows/ci.yml` | linux64 srcds: 50 PASS, 0 FAIL |
+| 13 Examples | `examples/minimal`, `examples/showcase` | srcds |
+| 14 Decisions log | this document | review |
+| 15 Risks | gates listed in §14 | probe-threadedcall, bench, trybuild, prototype |

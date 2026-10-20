@@ -61,6 +61,8 @@ pub unsafe fn create_interface(lib: &libloading::Library, name: &str) -> Option<
 
 /// Keeps the DLL containing `addr` mapped for the process lifetime (spec §8.1).
 #[cfg(unix)]
+// `addr` is only an address for dladdr lookup, never dereferenced.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn pin_self(addr: *const c_void) -> bool {
     use libloading::os::unix::{Library, RTLD_NOW};
     const RTLD_NODELETE: c_int = 0x1000;

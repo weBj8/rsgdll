@@ -108,7 +108,7 @@ fn lua_value() {
     let (l, lua) = common::state();
     common::exec(l, "v = { 1 }").unwrap();
     assert!(matches!(lua.global::<LuaValue>("v").unwrap(), LuaValue::Table(_)));
-    assert_eq!(lua.global::<LuaValue>("nothing").unwrap().is_nil(), true);
+    assert!(lua.global::<LuaValue>("nothing").unwrap().is_nil());
 }
 
 struct Counter {

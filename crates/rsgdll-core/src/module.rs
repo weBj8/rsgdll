@@ -192,6 +192,9 @@ pub fn display_error(e: impl std::fmt::Display) -> Error {
 
 /// Safe entry for the generated `gmod13_open` (user crates need no `unsafe`, spec §1).
 #[doc(hidden)]
+// Safe FFI boundary by design (spec §1): only macro-generated `extern "C-unwind"` fns call
+// this, with the `lua_State*` Lua passed them; user crates then need no `unsafe`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn open_entry(l: *mut lua_State, info: &'static ModuleInfo) -> c_int {
     // SAFETY: only called from the generated `gmod13_open`, which GMod invokes with a live state.
     unsafe { open(l, info) }
@@ -199,6 +202,9 @@ pub fn open_entry(l: *mut lua_State, info: &'static ModuleInfo) -> c_int {
 
 /// Safe entry for the generated `gmod13_close`.
 #[doc(hidden)]
+// Safe FFI boundary by design (spec §1): only macro-generated `extern "C-unwind"` fns call
+// this, with the `lua_State*` Lua passed them; user crates then need no `unsafe`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn close_entry(l: *mut lua_State) -> c_int {
     // SAFETY: only called from the generated `gmod13_close`.
     unsafe { close(l) }

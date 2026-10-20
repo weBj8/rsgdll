@@ -25,6 +25,9 @@ pub type ArgError = (c_int, ConvError);
 /// Entry point for a generated trampoline. Safe wrapper so user crates with
 /// `#![forbid(unsafe_code)]` need no `unsafe` block (spec §1).
 #[doc(hidden)]
+// Safe FFI boundary by design (spec §1): only macro-generated `extern "C-unwind"` fns call
+// this, with the `lua_State*` Lua passed them; user crates then need no `unsafe`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn entry(l: *mut lua_State, name: &'static str, in_module: bool, body: &dyn Fn(&Lua, c_int) -> Result<Outcome, ArgError>) -> c_int {
     // SAFETY: only called from generated `extern "C-unwind"` fns that Lua invokes with `l`.
     unsafe {
