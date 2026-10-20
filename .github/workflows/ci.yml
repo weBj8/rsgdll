@@ -1,0 +1,97 @@
+# rsgdll CI (spec §12). Windows targets are not released without a green Windows srcds run:
+# it is the only check of MSVC vtable slot order and thiscall.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Stock LuaJIT for runtime tests
+        run: sudo apt-get update && sudo apt-get install -y libluajit-5.1-2
+      - run: cargo build --workspace
+      - run: cargo test --workspace
+      - run: cargo test -p rsgdll --features server --test ui
+      - run: cargo clippy -p rsgdll-core -- -D warnings
+
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [linux, linux64, win32, win64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu,x86_64-unknown-linux-gnu,i686-pc-windows-msvc,x86_64-pc-windows-msvc
+      - uses: mlugg/setup-zig@v1
+      - run: cargo install cargo-zigbuild --version 0.20.1 --locked && cargo install cargo-xwin --locked
+      - run: cargo xtask build --target ${{ matrix.target }} --realm sv -p minimal --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gmsv_minimal_${{ matrix.target }}
+          path: target/gmod/*.dll
+
+  srcds-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: [linux64, linux]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+      - name: Cache srcds
+        uses: actions/cache@v4
+        with:
+          path: ~/srcds
+          key: srcds-gmod-${{ matrix.branch }}
+      - name: Install Garry's Mod dedicated server (SteamCMD app 4020)
+        run: |
+          sudo dpkg --add-architecture i386 && sudo apt-get update
+          sudo apt-get install -y lib32gcc-s1 steamcmd || true
+          BETA=""; [ "${{ matrix.branch }}" = "linux64" ] && BETA="-beta x86-64"
+          /usr/games/steamcmd +force_install_dir ~/srcds +login anonymous +app_update 4020 $BETA validate +quit
+      - name: test-srcds
+        env:
+          RSGDLL_SRCDS_DIR: ~/srcds
+        run: cargo xtask test-srcds
+
+  srcds-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        branch: [win64, win32]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc,x86_64-pc-windows-msvc
+      - name: Cache srcds
+        uses: actions/cache@v4
+        with:
+          path: C:\srcds
+          key: srcds-gmod-${{ matrix.branch }}
+      - name: Install Garry's Mod dedicated server (SteamCMD app 4020)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip -OutFile steamcmd.zip
+          Expand-Archive steamcmd.zip -DestinationPath C:\steamcmd
+          $beta = if ("${{ matrix.branch }}" -eq "win64") { "-beta x86-64" } else { "" }
+          C:\steamcmd\steamcmd.exe +force_install_dir C:\srcds +login anonymous +app_update 4020 $beta validate +quit
+          exit 0
+      - name: test-srcds
+        env:
+          RSGDLL_SRCDS_DIR: C:\srcds
+        run: cargo xtask test-srcds

@@ -113,7 +113,15 @@ pub fn build(s: &Spec) -> Result<PathBuf, String> {
     let features = std::iter::once(s.realm.features(s.menu)).chain(s.extra_features.iter().cloned()).collect::<Vec<_>>().join(",");
     // A per-realm target dir keeps feature sets from invalidating each other.
     let target_dir = root.join("target").join(format!("realm-{}", s.realm.prefix()));
-    let status = Command::new("cargo")
+    let mut cmd = Command::new("cargo");
+    if !s.native {
+        // Cross linkers (zig, lld-link) reject host-specific link args from a user's global
+        // `build.rustflags` (e.g. mold); RUSTFLAGS takes precedence over config rustflags.
+        cmd.env("RUSTFLAGS", "");
+        // cargo-xwin only fetches x86_64/aarch64 SDK libs by default; win32 needs x86.
+        cmd.env("XWIN_ARCH", "x86,x86_64");
+    }
+    let status = cmd
         .args(&sub)
         .args(["-p", &s.krate, "--target", &target, "--features", &features])
         .args(s.release.then_some("--release"))
