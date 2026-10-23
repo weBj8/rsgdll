@@ -34,7 +34,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: i686-unknown-linux-gnu,x86_64-unknown-linux-gnu,i686-pc-windows-msvc,x86_64-pc-windows-msvc
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
       - run: cargo install cargo-zigbuild --version 0.20.1 --locked && cargo install cargo-xwin --locked
       - run: cargo xtask build --target ${{ matrix.target }} --realm sv -p minimal --release
       - uses: actions/upload-artifact@v4
@@ -60,7 +62,9 @@ jobs:
       - name: Install Garry's Mod dedicated server (SteamCMD app 4020)
         run: |
           sudo dpkg --add-architecture i386 && sudo apt-get update
-          sudo apt-get install -y lib32gcc-s1 steamcmd || true
+          echo steam steam/question select "I AGREE" | sudo debconf-set-selections
+          echo steam steam/license note '' | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y lib32gcc-s1 steamcmd
           BETA=""; [ "${{ matrix.branch }}" = "linux64" ] && BETA="-beta x86-64"
           /usr/games/steamcmd +force_install_dir ~/srcds +login anonymous +app_update 4020 $BETA validate +quit
       - name: test-srcds
