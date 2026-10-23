@@ -1,2 +1,6 @@
 /target
 xtask.toml
+.agents/
+skills-lock.json
+.pi/*
+!.pi/realmem/
