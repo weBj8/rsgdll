@@ -223,6 +223,8 @@ pub fn run_srcds(
             "-game",
             "garrysmod",
             "-norestart",
+            // secure Steam init hangs on CI runners (no Steam auth); tests need no VAC
+            "-insecure",
             "-port",
             "27199",
             "+maxplayers",
