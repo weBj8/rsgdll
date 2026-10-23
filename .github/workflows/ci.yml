@@ -44,58 +44,29 @@ jobs:
           name: gmsv_minimal_${{ matrix.target }}
           path: target/gmod/*.dll
 
+  # xtask test-srcds only drives linux64 (Platform::Linux64 + srcds_run_x64); other branches
+  # need harness support before they get a job here.
   srcds-linux:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        branch: [linux64, linux]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: i686-unknown-linux-gnu
       - name: Cache srcds
         uses: actions/cache@v4
         with:
           path: ~/srcds
-          key: srcds-gmod-${{ matrix.branch }}
+          key: srcds-gmod-linux64
       - name: Install Garry's Mod dedicated server (SteamCMD app 4020)
         run: |
           sudo dpkg --add-architecture i386 && sudo apt-get update
           echo steam steam/question select "I AGREE" | sudo debconf-set-selections
           echo steam steam/license note '' | sudo debconf-set-selections
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y lib32gcc-s1 steamcmd
-          BETA=""; [ "${{ matrix.branch }}" = "linux64" ] && BETA="-beta x86-64"
-          /usr/games/steamcmd +force_install_dir ~/srcds +login anonymous +app_update 4020 $BETA validate +quit
+          # first app_update after steamcmd self-update often fails with "Missing configuration"
+          for i in 1 2 3; do
+            /usr/games/steamcmd +force_install_dir "$HOME/srcds" +login anonymous +app_update 4020 -beta x86-64 validate +quit && break
+            [ "$i" = 3 ] && exit 1; sleep 5
+          done
+          test -x "$HOME/srcds/srcds_run_x64"
       - name: test-srcds
-        env:
-          RSGDLL_SRCDS_DIR: ~/srcds
-        run: cargo xtask test-srcds
-
-  srcds-windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        branch: [win64, win32]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: i686-pc-windows-msvc,x86_64-pc-windows-msvc
-      - name: Cache srcds
-        uses: actions/cache@v4
-        with:
-          path: C:\srcds
-          key: srcds-gmod-${{ matrix.branch }}
-      - name: Install Garry's Mod dedicated server (SteamCMD app 4020)
-        shell: pwsh
-        run: |
-          Invoke-WebRequest https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip -OutFile steamcmd.zip
-          Expand-Archive steamcmd.zip -DestinationPath C:\steamcmd
-          $beta = if ("${{ matrix.branch }}" -eq "win64") { "-beta x86-64" } else { "" }
-          C:\steamcmd\steamcmd.exe +force_install_dir C:\srcds +login anonymous +app_update 4020 $beta validate +quit
-          exit 0
-      - name: test-srcds
-        env:
-          RSGDLL_SRCDS_DIR: C:\srcds
-        run: cargo xtask test-srcds
+        run: RSGDLL_SRCDS_DIR="$HOME/srcds" cargo xtask test-srcds
