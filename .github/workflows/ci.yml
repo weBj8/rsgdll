@@ -74,4 +74,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: srcds-test-log
-          path: target/srcds-test.log
+          path: |
+            target/srcds-test.log
+            ~/srcds/garrysmod/console.log
+            ~/srcds/core*
+            ~/srcds/*.mdmp
