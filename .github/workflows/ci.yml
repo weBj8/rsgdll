@@ -70,3 +70,8 @@ jobs:
           test -x "$HOME/srcds/srcds_run_x64"
       - name: test-srcds
         run: RSGDLL_SRCDS_DIR="$HOME/srcds" cargo xtask test-srcds
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: srcds-test-log
+          path: target/srcds-test.log
