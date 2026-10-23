@@ -218,7 +218,10 @@ pub fn run_srcds(
     extra: &[&str],
 ) -> Result<Run, String> {
     let dir = config::srcds_dir()?;
-    let mut child = Command::new(dir.join("srcds_run_x64"))
+    // stdout to a pipe is block-buffered: with little console output the DONE markers never flush
+    let mut child = Command::new("stdbuf")
+        .arg("-oL")
+        .arg(dir.join("srcds_run_x64"))
         .args([
             "-game",
             "garrysmod",
@@ -286,7 +289,10 @@ pub fn run_srcds(
         }
     }
     // record whether srcds died on its own (crash/exit) before we kill it
-    run.log.push(format!("[xtask] srcds status before kill: {:?}", child.try_wait()));
+    run.log.push(format!(
+        "[xtask] srcds status before kill: {:?}",
+        child.try_wait()
+    ));
     let _ = child.kill();
     let _ = child.wait();
     rx.try_iter().for_each(|l| run.log.push(l));
