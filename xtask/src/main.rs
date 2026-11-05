@@ -30,6 +30,7 @@ fn default_probe_files() -> Result<Vec<PathBuf>, String> {
     Ok([
         "bin/linux64/lua_shared.so",
         "bin/lua_shared.so",
+        "bin/linux32/lua_shared.so",
         "garrysmod/bin/lua_shared_srv.so",
         "bin/win64/lua_shared.dll",
         "bin/lua_shared.dll",

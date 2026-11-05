@@ -46,14 +46,14 @@ pub const fn lua_upvalueindex(i: c_int) -> c_int {
 
 /// Declares the fn table: one `unsafe extern "C-unwind"` pointer per bound symbol.
 macro_rules! lua_api {
-    ($( $name:ident : fn($($arg:ty),*) $(-> $ret:ty)? ;)*) => {
-        /// Lua C API fn pointers resolved from `lua_shared` (or a stock LuaJIT in tests).
+    ($(#[$doc:meta])* $api:ident { $( $name:ident : fn($($arg:ty),*) $(-> $ret:ty)? ;)* }) => {
+        $(#[$doc])*
         #[allow(non_snake_case, missing_docs)]
-        pub struct LuaApi {
+        pub struct $api {
             $(pub $name: unsafe extern "C-unwind" fn($($arg),*) $(-> $ret)?,)*
         }
 
-        impl LuaApi {
+        impl $api {
             /// Every bound symbol name, for diagnostics and the probe intersection.
             pub const SYMBOLS: &'static [&'static str] = &[$(stringify!($name)),*];
 
@@ -72,6 +72,8 @@ macro_rules! lua_api {
 }
 
 lua_api! {
+    /// Lua C API fn pointers resolved from `lua_shared` (or a stock LuaJIT in tests).
+    LuaApi {
     lua_gettop: fn(*mut lua_State) -> c_int;
     lua_settop: fn(*mut lua_State, c_int);
     lua_pushvalue: fn(*mut lua_State, c_int);
@@ -139,4 +141,91 @@ lua_api! {
     luaL_newmetatable: fn(*mut lua_State, *const c_char) -> c_int;
     luaL_checkudata: fn(*mut lua_State, c_int, *const c_char) -> *mut c_void;
     luaL_traceback: fn(*mut lua_State, *mut lua_State, *const c_char, c_int);
+    }
+}
+
+// -- Debug API (Lua 5.1 / LuaJIT 2.1 `lua.h`, spec §5.1a) ---------------------------------
+
+/// `LUA_IDSIZE` of Garry's Mod's LuaJIT build (size of [`lua_Debug::short_src`]). Stock LuaJIT
+/// uses 60; GMod uses 128 (its `lua_getstack` stores `i_ci` at 0xb8 on x86-64, 0xa4 on x86).
+/// A record sized for 128 is also large enough for a stock build, which only writes less of it.
+pub const LUA_IDSIZE: usize = 128;
+
+pub const LUA_HOOKCALL: c_int = 0;
+pub const LUA_HOOKRET: c_int = 1;
+pub const LUA_HOOKLINE: c_int = 2;
+pub const LUA_HOOKCOUNT: c_int = 3;
+/// Declared by `lua.h` but never delivered by LuaJIT 2.1 (tail calls report nothing extra).
+pub const LUA_HOOKTAILRET: c_int = 4;
+
+pub const LUA_MASKCALL: c_int = 1 << LUA_HOOKCALL;
+pub const LUA_MASKRET: c_int = 1 << LUA_HOOKRET;
+pub const LUA_MASKLINE: c_int = 1 << LUA_HOOKLINE;
+pub const LUA_MASKCOUNT: c_int = 1 << LUA_HOOKCOUNT;
+
+/// Activation record, field-for-field `struct lua_Debug` of Lua 5.1 / LuaJIT 2.1.
+/// `i_ci` is private to the VM: only pass records filled by `lua_getstack` or a hook.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct lua_Debug {
+    pub event: c_int,
+    pub name: *const c_char,
+    pub namewhat: *const c_char,
+    pub what: *const c_char,
+    pub source: *const c_char,
+    pub currentline: c_int,
+    pub nups: c_int,
+    pub linedefined: c_int,
+    pub lastlinedefined: c_int,
+    pub short_src: [c_char; LUA_IDSIZE],
+    pub i_ci: c_int,
+}
+
+impl Default for lua_Debug {
+    fn default() -> Self {
+        // SAFETY: integers, null pointers and a zeroed char array are all valid.
+        unsafe { core::mem::zeroed() }
+    }
+}
+
+// Layout probes: `offsetof` on the LuaJIT 2.1 header (gcc -m32/-m64, clang MSVC targets) with
+// LUA_IDSIZE=128, cross-checked against the `i_ci` store in GMod's linux32/linux64 lua_shared.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(core::mem::size_of::<lua_Debug>() == 192);
+    assert!(core::mem::align_of::<lua_Debug>() == 8);
+    assert!(core::mem::offset_of!(lua_Debug, name) == 8);
+    assert!(core::mem::offset_of!(lua_Debug, currentline) == 40);
+    assert!(core::mem::offset_of!(lua_Debug, short_src) == 56);
+    assert!(core::mem::offset_of!(lua_Debug, i_ci) == 184);
+};
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(core::mem::size_of::<lua_Debug>() == 168);
+    assert!(core::mem::align_of::<lua_Debug>() == 4);
+    assert!(core::mem::offset_of!(lua_Debug, name) == 4);
+    assert!(core::mem::offset_of!(lua_Debug, currentline) == 20);
+    assert!(core::mem::offset_of!(lua_Debug, short_src) == 36);
+    assert!(core::mem::offset_of!(lua_Debug, i_ci) == 164);
+};
+
+/// `lua_Hook`: `void (*)(lua_State *, lua_Debug *)`, C ABI (cdecl on x86). `None` = no hook.
+/// The hook must not unwind into the VM: catch panics (see `rsgdll_core::debug`).
+pub type lua_Hook = Option<unsafe extern "C-unwind" fn(*mut lua_State, *mut lua_Debug)>;
+
+lua_api! {
+    /// Lua debug API, resolved separately from [`LuaApi`] so modules that never use it keep
+    /// loading if a symbol is missing (see `rsgdll_sys::debug_api`).
+    LuaDebugApi {
+    lua_getstack: fn(*mut lua_State, c_int, *mut lua_Debug) -> c_int;
+    lua_getinfo: fn(*mut lua_State, *const c_char, *mut lua_Debug) -> c_int;
+    lua_getlocal: fn(*mut lua_State, *const lua_Debug, c_int) -> *const c_char;
+    lua_setlocal: fn(*mut lua_State, *const lua_Debug, c_int) -> *const c_char;
+    lua_getupvalue: fn(*mut lua_State, c_int, c_int) -> *const c_char;
+    lua_setupvalue: fn(*mut lua_State, c_int, c_int) -> *const c_char;
+    lua_sethook: fn(*mut lua_State, lua_Hook, c_int, c_int) -> c_int;
+    lua_gethook: fn(*mut lua_State) -> lua_Hook;
+    lua_gethookmask: fn(*mut lua_State) -> c_int;
+    lua_gethookcount: fn(*mut lua_State) -> c_int;
+    }
 }

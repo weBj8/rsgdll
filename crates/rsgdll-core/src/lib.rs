@@ -6,6 +6,7 @@ compile_error!("rsgdll requires `panic = \"unwind\"` (catch_unwind in trampoline
 
 pub mod chunk;
 pub mod conv;
+pub mod debug;
 pub mod error;
 pub mod export;
 pub mod interface;

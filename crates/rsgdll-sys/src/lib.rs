@@ -10,7 +10,7 @@ pub mod vtables;
 
 use std::sync::OnceLock;
 
-pub use lua::{LuaApi, lua_State};
+pub use lua::{LuaApi, LuaDebugApi, lua_State};
 
 /// Base names of the GMod Lua library, tried in order (`lua_shared_srv` on old Linux servers).
 const LUA_SHARED_NAMES: &[&str] = &["lua_shared", "lua_shared_srv"];
@@ -54,4 +54,19 @@ pub fn api() -> &'static LuaApi {
         Some(Ok(l)) => &l.api,
         _ => panic!("rsgdll-sys: Lua API used before load"),
     }
+}
+
+static DEBUG: OnceLock<Result<LuaDebugApi, String>> = OnceLock::new();
+
+/// Debug API from the same library as [`api`], resolved on first use. Fails with the missing
+/// symbol name, or if the Lua library itself is not loaded yet.
+pub fn debug_api() -> Result<&'static LuaDebugApi, &'static str> {
+    let Some(Ok(loaded)) = LUA.get() else {
+        return Err("rsgdll-sys: debug API requested before the Lua library was loaded");
+    };
+    DEBUG
+        // SAFETY: the library exports the Lua 5.1 debug API with the declared signatures.
+        .get_or_init(|| unsafe { LuaDebugApi::load(&loaded.lib) })
+        .as_ref()
+        .map_err(String::as_str)
 }

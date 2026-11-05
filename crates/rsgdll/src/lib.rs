@@ -11,6 +11,8 @@ pub use rsgdll_macros::{
     preclose, preopen,
 };
 
+/// Native debug hooks and live-frame inspection.
+pub use rsgdll_core::debug;
 pub use rsgdll_core::rt::{LocalLua, LuaHandle, sleep, spawn_local, spawn_worker};
 pub use rsgdll_gmod::hook_marker;
 pub use rsgdll_gmod::{concommand, cvars, hook, hooks, net, timer};

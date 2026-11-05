@@ -126,7 +126,26 @@ pub fn probe(file: &Path) -> Result<Report, String> {
     })
 }
 
+/// Symbols of `rsgdll_sys::LuaDebugApi` (issue: native debug API capability).
+const DEBUG_API: &[&str] = &[
+    "lua_getstack",
+    "lua_getinfo",
+    "lua_getlocal",
+    "lua_setlocal",
+    "lua_getupvalue",
+    "lua_setupvalue",
+    "lua_sethook",
+    "lua_gethook",
+    "lua_gethookmask",
+    "lua_gethookcount",
+];
+
 pub fn render(r: &Report) -> String {
+    let missing: Vec<&str> = DEBUG_API
+        .iter()
+        .copied()
+        .filter(|s| !r.symbols.iter().any(|x| x == s))
+        .collect();
     [
         format!("file: {}", r.file.display()),
         format!("luajit: {}", r.version.as_deref().unwrap_or("unknown")),
@@ -139,6 +158,10 @@ pub fn render(r: &Report) -> String {
                 .collect::<Vec<_>>()
                 .join(" ")
         ),
+        match missing.as_slice() {
+            [] => "debug api: complete".to_owned(),
+            m => format!("debug api: missing {}", m.join(" ")),
+        },
         format!("symbols ({}):", r.symbols.len()),
     ]
     .into_iter()

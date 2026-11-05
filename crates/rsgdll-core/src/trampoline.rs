@@ -81,10 +81,20 @@ pub fn push_message(lua: &Lua, msg: &str) {
     }
 }
 
+/// Runs `f`, turning a panic into its formatted message (captured by the panic hook).
+pub(crate) fn catch<T>(f: impl FnOnce() -> T) -> Result<T, String> {
+    IN_TRAMPOLINE.with(|d| *d.borrow_mut() += 1);
+    let r = catch_unwind(AssertUnwindSafe(f));
+    IN_TRAMPOLINE.with(|d| *d.borrow_mut() -= 1);
+    r.map_err(|payload| {
+        drop(payload);
+        panic_message()
+    })
+}
+
 #[inline(never)]
 fn run(l: *mut lua_State, f: &dyn Fn(&Lua) -> Outcome) -> Option<c_int> {
-    IN_TRAMPOLINE.with(|d| *d.borrow_mut() += 1);
-    let r = catch_unwind(AssertUnwindSafe(|| {
+    let r = catch(|| {
         // SAFETY: called by Lua with a live state.
         match unsafe { Lua::from_raw(l) } {
             Ok(lua) => {
@@ -107,13 +117,10 @@ fn run(l: *mut lua_State, f: &dyn Fn(&Lua) -> Outcome) -> Option<c_int> {
                 None
             }
         }
-    }));
-    IN_TRAMPOLINE.with(|d| *d.borrow_mut() -= 1);
+    });
     match r {
         Ok(v) => v,
-        Err(payload) => {
-            drop(payload);
-            let msg = panic_message();
+        Err(msg) => {
             // SAFETY: as above.
             match unsafe { Lua::from_raw(l) } {
                 Ok(lua) => push_message(&lua, &msg),

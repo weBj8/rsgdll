@@ -352,3 +352,24 @@ fn probe_threaded(lua: &Lua, n: usize) -> Result<()> {
 fn probe_runs() -> usize {
     rsgdll::__rt::rt::threaded::PROBE_RUNS.load(Ordering::SeqCst)
 }
+
+/// Calls `f` under a line hook and reads the live local `secret` and upvalue `up` from inside
+/// the hook while `f`'s frame is paused (in-engine proof for the debug API).
+#[rsgdll::function]
+fn debug_probe(lua: &Lua, f: LuaFunction) -> Result<String> {
+    use std::{cell::RefCell, rc::Rc};
+    let seen = Rc::new(RefCell::new(String::new()));
+    let s = seen.clone();
+    rsgdll::debug::set_hook(lua, rsgdll::debug::LUA_MASKLINE, 0, move |lua, _| {
+        let Ok(Some(fr)) = lua.frame(0) else { return };
+        let Ok(locals) = fr.locals::<LuaValue>() else { return };
+        if let Some((_, v)) = locals.iter().find(|(n, _)| n == "secret") {
+            let up = fr.upvalue::<LuaValue>(1).ok().flatten().and_then(|(_, v)| v.as_number());
+            *s.borrow_mut() = format!("secret={:?} up={up:?}", v.as_number());
+        }
+    })?;
+    let r = f.call::<_, ()>(lua, ());
+    rsgdll::debug::remove_hook(lua)?;
+    r?;
+    Ok(seen.take())
+}

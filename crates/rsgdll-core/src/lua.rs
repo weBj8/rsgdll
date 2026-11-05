@@ -254,6 +254,10 @@ pub unsafe fn open_state(l: *mut lua_State, module: &'static str) -> Result<Lua>
 
 /// Unrefs the bootstrap refs and removes the runtime entry (spec §8.1 close order, last step).
 pub fn close_state(lua: Lua) {
+    // The hook points into this DLL: it must not outlive the runtime (spec §5.1a).
+    if lua.rt.ext.borrow().contains_key("rsgdll.debug.hook") {
+        let _ = crate::debug::remove_hook(&lua);
+    }
     let b = &lua.rt.boot;
     let ops = [
         Op::Unref(b.handler),

@@ -95,6 +95,15 @@ end)
 -- hook / timer
 check("hook_typed_run_remove", function() return showcase.HooksAndTimers() == "pong" and hook.GetTable().PlayerSay["showcase.say"] == nil end)
 check("hook_custom_attr", function() hook.Run("Showcase.Event", 9) return SHOWCASE_EVENT == 9 end)
+-- Debug API
+check("debug_hook_live_frame", function()
+    local up = 7
+    local r = showcase.DebugProbe(function()
+        local secret = 42
+        return secret + up
+    end)
+    assert(r == "secret=Some(42.0) up=Some(7.0)", r)
+end)
 -- Async
 showcase.ThreadCall()
 showcase.LocalSleep()
