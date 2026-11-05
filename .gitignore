@@ -3,4 +3,5 @@ xtask.toml
 .agents/
 skills-lock.json
 .pi/*
-!.pi/realmem/
+!/.pi/realctx/
+!/.pi/realctx/**
